@@ -17,6 +17,7 @@ __all__ = (
     "C1",
     "C2",
     "C3",
+    "MFE", #新增
     "C2f",
     "C2fAttn",
     "ImagePoolingAttn",
@@ -210,6 +211,28 @@ class C2(nn.Module):
         a, b = self.cv1(x).chunk(2, 1)
         return self.cv2(torch.cat((self.m(a), b), 1))
 
+class MFE(nn.Module):
+    """Multilevel Feature Extraction module."""
+    def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5):
+        super().__init__()
+        self.c = int(c2 * e)  # hidden channels
+        self.cv1 = Conv(c1, 2 * self.c, 1, 1)
+        # 新增分支：1x1降维 + 3x3卷积
+        self.conv_extra = nn.Sequential(
+            Conv(c1, self.c, 1, 1),   # 1x1 conv reduce
+            Conv(self.c, self.c, 3, 1) # 3x3 conv, same padding
+        )
+        # 注意 cv2 的输入通道数增加了 self.c（来自额外分支）
+        self.cv2 = Conv((2 + n) * self.c + self.c, c2, 1)
+        self.m = nn.ModuleList(Bottleneck(self.c, self.c, shortcut, g, k=((3, 3), (3, 3)), e=1.0) for _ in range(n))
+
+    def forward(self, x):
+        """Forward pass of the MFE module."""
+        y = list(self.cv1(x).chunk(2, 1))
+        y.extend(m(y[-1]) for m in self.m)
+        extra = self.conv_extra(x)          # 计算额外分支
+        y.append(extra)                      # 拼接
+        return self.cv2(torch.cat(y, 1))
 
 class C2f(nn.Module):
     """Faster Implementation of CSP Bottleneck with 2 convolutions."""
