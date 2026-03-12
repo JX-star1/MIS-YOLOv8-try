@@ -216,9 +216,9 @@ class MFE(nn.Module):
     def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5):
         def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5):
            print(f"[MFE] c1={c1}, c2={c2}, n={n}, shortcut={shortcut}, g={g}, e={e}")
-           assert c1 is not None and c2 is not None, f"c1 or c2 is None: c1={c1}, c2={c2}"
-           assert isinstance(c1, int) and isinstance(c2, int), f"c1 or c2 not int: c1={c1} type={type(c1)}, c2={c2} type={type(c2)}"
-           assert c1 > 0 and c2 > 0, f"c1 or c2 <=0: c1={c1}, c2={c2}"
+           assert isinstance(c1, int) and c1 > 0, f"c1 invalid: {c1} (type {type(c1)})"
+           assert isinstance(c2, int) and c2 > 0, f"c2 invalid: {c2} (type {type(c2)})"
+           assert isinstance(e, float) and e > 0, f"e invalid: {e}"
            super().__init__()
            self.c = int(c2 * e)
            print(f"[MFE] self.c={self.c}")
