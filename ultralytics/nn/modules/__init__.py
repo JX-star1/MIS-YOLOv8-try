@@ -21,6 +21,7 @@ from .block import (
     C1,
     C2,
     C3,
+    MFE, #新加
     C3TR,
     DFL,
     SPP,
@@ -102,6 +103,7 @@ __all__ = (
     "C1",
     "C2",
     "C3",
+    "MFE", #新加
     "C2f",
     "C2fAttn",
     "C3x",
