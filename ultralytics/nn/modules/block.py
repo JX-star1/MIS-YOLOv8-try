@@ -214,6 +214,16 @@ class C2(nn.Module):
 class MFE(nn.Module):
     """Multilevel Feature Extraction module."""
     def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5):
+        def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5):
+           print(f"[MFE] c1={c1}, c2={c2}, n={n}, shortcut={shortcut}, g={g}, e={e}")
+           assert c1 is not None and c2 is not None, f"c1 or c2 is None: c1={c1}, c2={c2}"
+           assert isinstance(c1, int) and isinstance(c2, int), f"c1 or c2 not int: c1={c1} type={type(c1)}, c2={c2} type={type(c2)}"
+           assert c1 > 0 and c2 > 0, f"c1 or c2 <=0: c1={c1}, c2={c2}"
+           super().__init__()
+           self.c = int(c2 * e)
+           print(f"[MFE] self.c={self.c}")
+           assert self.c > 0, f"self.c <=0: c2={c2}, e={e} => self.c={self.c}"
+        # 后续代码不变
         super().__init__()
         self.c = int(c2 * e)  # hidden channels
         self.cv1 = Conv(c1, 2 * self.c, 1, 1)

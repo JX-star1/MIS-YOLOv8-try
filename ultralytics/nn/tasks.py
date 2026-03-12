@@ -32,6 +32,7 @@ from ultralytics.nn.modules import (
     Conv2,
     ConvTranspose,
     Detect,
+    MFE, #新加
     DWConv,
     DWConvTranspose2d,
     Focus,
