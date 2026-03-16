@@ -710,3 +710,78 @@ class CBFuse(nn.Module):
         res = [F.interpolate(x[self.idx[i]], size=target_size, mode="nearest") for i, x in enumerate(xs[:-1])]
         out = torch.sum(torch.stack(res + xs[-1:]), dim=0)
         return out
+    
+    
+class ASFF(nn.Module):
+    """Adaptive Spatial Feature Fusion for 3-scale feature fusion."""
+
+    def __init__(self, c1, c2, level):
+        """
+        Args:
+            c1: list[int], input channels of 3 feature maps
+            c2: int, output channels
+            level: int, target fusion level (0, 1, 2)
+        """
+        super().__init__()
+        self.level = level
+        self.dim = c1
+        self.inter_dim = self.dim[level]
+
+        if level == 0:
+            self.stride_level_1 = Conv(self.dim[1], self.inter_dim, 3, 2)
+            self.stride_level_2 = Conv(self.dim[2], self.inter_dim, 3, 2)
+            self.expand = Conv(self.inter_dim, c2, 3, 1)
+        elif level == 1:
+            self.compress_level_0 = Conv(self.dim[0], self.inter_dim, 1, 1)
+            self.stride_level_2 = Conv(self.dim[2], self.inter_dim, 3, 2)
+            self.expand = Conv(self.inter_dim, c2, 3, 1)
+        elif level == 2:
+            self.compress_level_0 = Conv(self.dim[0], self.inter_dim, 1, 1)
+            self.compress_level_1 = Conv(self.dim[1], self.inter_dim, 1, 1)
+            self.expand = Conv(self.inter_dim, c2, 3, 1)
+
+        compress_c = 8
+        self.weight_level_0 = Conv(self.inter_dim, compress_c, 1, 1)
+        self.weight_level_1 = Conv(self.inter_dim, compress_c, 1, 1)
+        self.weight_level_2 = Conv(self.inter_dim, compress_c, 1, 1)
+        self.weight_levels = nn.Conv2d(compress_c * 3, 3, kernel_size=1, stride=1, padding=0)
+
+    def forward(self, x):
+        """
+        x: list of 3 feature maps [x0, x1, x2]
+           level 0: highest resolution
+           level 2: lowest resolution
+        """
+        x_level_0, x_level_1, x_level_2 = x
+
+        if self.level == 0:
+            level_0_resized = x_level_0
+            level_1_resized = F.interpolate(x_level_1, scale_factor=2, mode='nearest')
+            level_2_resized = F.interpolate(x_level_2, scale_factor=4, mode='nearest')
+
+        elif self.level == 1:
+            level_0_resized = self.compress_level_0(F.max_pool2d(x_level_0, kernel_size=2, stride=2))
+            level_1_resized = x_level_1
+            level_2_resized = F.interpolate(x_level_2, scale_factor=2, mode='nearest')
+
+        elif self.level == 2:
+            level_0_resized = self.compress_level_0(F.max_pool2d(x_level_0, kernel_size=4, stride=4))
+            level_1_resized = self.compress_level_1(F.max_pool2d(x_level_1, kernel_size=2, stride=2))
+            level_2_resized = x_level_2
+
+        level_0_weight_v = self.weight_level_0(level_0_resized)
+        level_1_weight_v = self.weight_level_1(level_1_resized)
+        level_2_weight_v = self.weight_level_2(level_2_resized)
+
+        levels_weight_v = torch.cat((level_0_weight_v, level_1_weight_v, level_2_weight_v), 1)
+        levels_weight = self.weight_levels(levels_weight_v)
+        levels_weight = F.softmax(levels_weight, dim=1)
+
+        fused_out = (
+            level_0_resized * levels_weight[:, 0:1, :, :]
+            + level_1_resized * levels_weight[:, 1:2, :, :]
+            + level_2_resized * levels_weight[:, 2:3, :, :]
+        )
+
+        out = self.expand(fused_out)
+        return out

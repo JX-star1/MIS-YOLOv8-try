@@ -32,7 +32,7 @@ from ultralytics.nn.modules import (
     Conv2,
     ConvTranspose,
     Detect,
-    MFE, #新加
+    MFE, #新增1
     DWConv,
     DWConvTranspose2d,
     Focus,
@@ -50,6 +50,7 @@ from ultralytics.nn.modules import (
     Segment,
     Silence,
     WorldDetect,
+    ASFF, #新增2
 )
 from ultralytics.utils import DEFAULT_CFG_DICT, DEFAULT_CFG_KEYS, LOGGER, colorstr, emojis, yaml_load
 from ultralytics.utils.checks import check_requirements, check_suffix, check_yaml
@@ -875,7 +876,7 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             C1,
             C2,
             C2f,
-            MFE,
+            MFE, #add1
             RepNCSPELAN4,
             ADown,
             SPPELAN,
@@ -887,6 +888,7 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             DWConvTranspose2d,
             C3x,
             RepC3,
+            ASFF, #add2
         }:
             c1, c2 = ch[f], args[0]
             if c2 != nc:  # if c2 not equal to number of classes (i.e. for Classify() output)
@@ -915,6 +917,11 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             args = [ch[f]]
         elif m is Concat:
             c2 = sum(ch[x] for x in f)
+        elif m is ASFF:
+            c1 = [ch[x] for x in f]
+            c2 = args[0]
+            level = args[1]
+            args = [c1, c2, level]
         elif m in {Detect, WorldDetect, Segment, Pose, OBB, ImagePoolingAttn}:
             args.append([ch[x] for x in f])
             if m is Segment:

@@ -21,7 +21,7 @@ from .block import (
     C1,
     C2,
     C3,
-    MFE, #新加
+    MFE, #add1
     C3TR,
     DFL,
     SPP,
@@ -47,6 +47,7 @@ from .block import (
     RepNCSPELAN4,
     ResNetLayer,
     Silence,
+    ASFF, #add2
 )
 from .conv import (
     CBAM,
@@ -103,7 +104,7 @@ __all__ = (
     "C1",
     "C2",
     "C3",
-    "MFE", #新加
+    "MFE", #add1
     "C2f",
     "C2fAttn",
     "C3x",
@@ -137,5 +138,6 @@ __all__ = (
     "CBFuse",
     "CBLinear",
     "Silence",
+    "ASFF", #add2
 )
 from .block import *
