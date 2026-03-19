@@ -3,6 +3,7 @@
 import contextlib
 from copy import deepcopy
 from pathlib import Path
+from ultralytics.nn.modules.block import ASFF
 
 import torch
 import torch.nn as nn
@@ -888,7 +889,6 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             DWConvTranspose2d,
             C3x,
             RepC3,
-            ASFF, #add2
         }:
             c1, c2 = ch[f], args[0]
             if c2 != nc:  # if c2 not equal to number of classes (i.e. for Classify() output)
@@ -918,9 +918,12 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
         elif m is Concat:
             c2 = sum(ch[x] for x in f)
         elif m is ASFF:
-            c1 = [ch[x] for x in f]
+            # f 是 [18, 21, 24] 这样的列表, 多输入通道列表
+            c1 = [ch[x] for x in (f if isinstance(f, list) else [f])]
+            # args = [c2, level]
             c2 = args[0]
             level = args[1]
+            # 构造 ASFF(c1, c2, level)
             args = [c1, c2, level]
         elif m in {Detect, WorldDetect, Segment, Pose, OBB, ImagePoolingAttn}:
             args.append([ch[x] for x in f])
