@@ -4,6 +4,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from ultralytics.nn.modules.conv import Conv
 
 from .conv import Conv, DWConv, GhostConv, LightConv, RepConv, autopad
 from .transformer import TransformerBlock
@@ -711,77 +712,130 @@ class CBFuse(nn.Module):
         out = torch.sum(torch.stack(res + xs[-1:]), dim=0)
         return out
     
-    
 class ASFF(nn.Module):
     """Adaptive Spatial Feature Fusion for 3-scale feature fusion."""
 
     def __init__(self, c1, c2, level):
         """
         Args:
-            c1: list[int], input channels of 3 feature maps
+            c1: list[int], input channels of 3 feature maps, e.g. [C2, C3, C4]
             c2: int, output channels
             level: int, target fusion level (0, 1, 2)
         """
         super().__init__()
         self.level = level
-        self.dim = c1
-        self.inter_dim = self.dim[level]
+        self.dim = c1  # [c2, c3, c4]
+        self.inter_dim = self.dim[level]  # use target level channels as intermediate dim
 
+        compress_c = 8  # channel for attention weights
+
+        # ------ branch-specific resize & channel align modules ------
         if level == 0:
-            self.stride_level_1 = Conv(self.dim[1], self.inter_dim, 3, 2)
-            self.stride_level_2 = Conv(self.dim[2], self.inter_dim, 3, 2)
-            self.expand = Conv(self.inter_dim, c2, 3, 1)
-        elif level == 1:
-            self.compress_level_0 = Conv(self.dim[0], self.inter_dim, 1, 1)
-            self.stride_level_2 = Conv(self.dim[2], self.inter_dim, 3, 2)
-            self.expand = Conv(self.inter_dim, c2, 3, 1)
-        elif level == 2:
-            self.compress_level_0 = Conv(self.dim[0], self.inter_dim, 1, 1)
-            self.compress_level_1 = Conv(self.dim[1], self.inter_dim, 1, 1)
-            self.expand = Conv(self.inter_dim, c2, 3, 1)
+            # target: highest resolution (P2)
+            # x0: P2, x1: P3, x2: P4
+            # after resize, all three must have channels = inter_dim = dim[0]
+            self.down_1 = Conv(self.dim[1], self.inter_dim, 3, 2)  # P3 -> P2 size & channels
+            self.down_2 = Conv(self.dim[2], self.inter_dim, 3, 2)  # P4 -> P2 size & channels
 
-        compress_c = 8
+        elif level == 1:
+            # target: middle resolution (P3)
+            # after resize, all three must have channels = inter_dim = dim[1]
+            self.compress_0 = Conv(self.dim[0], self.inter_dim, 1, 1)  # P2 channels -> P3 channels
+            self.down_2 = Conv(self.dim[2], self.inter_dim, 3, 2)      # P4 -> P3 size & channels
+
+        elif level == 2:
+            # target: lowest resolution (P4)
+            # after resize, all three must have channels = inter_dim = dim[2]
+            self.compress_0 = Conv(self.dim[0], self.inter_dim, 1, 1)  # P2 channels -> P4 channels
+            self.compress_1 = Conv(self.dim[1], self.inter_dim, 1, 1)  # P3 channels -> P4 channels
+
+        # ------ weight layers: input channels = inter_dim for all three ------
         self.weight_level_0 = Conv(self.inter_dim, compress_c, 1, 1)
         self.weight_level_1 = Conv(self.inter_dim, compress_c, 1, 1)
         self.weight_level_2 = Conv(self.inter_dim, compress_c, 1, 1)
         self.weight_levels = nn.Conv2d(compress_c * 3, 3, kernel_size=1, stride=1, padding=0)
 
+        # final expand conv
+        self.expand = Conv(self.inter_dim, c2, 3, 1)
+
     def forward(self, x):
         """
         x: list of 3 feature maps [x0, x1, x2]
-           level 0: highest resolution
-           level 2: lowest resolution
+           x0: highest resolution (P2), x2: lowest resolution (P4)
         """
-        x_level_0, x_level_1, x_level_2 = x
+        x0, x1, x2 = x
 
         if self.level == 0:
-            level_0_resized = x_level_0
-            level_1_resized = F.interpolate(x_level_1, scale_factor=2, mode='nearest')
-            level_2_resized = F.interpolate(x_level_2, scale_factor=4, mode='nearest')
+            # target scale: x0 (P2)
+            h, w = x0.shape[2], x0.shape[3]
+
+            # P2: keep size, reduce/keep channels to inter_dim (use 1x1 conv if dim[0] != inter_dim)
+            if x0.shape[1] != self.inter_dim:
+                # rare case when dim[0] != inter_dim because of width scaling
+                x0_aligned = F.interpolate(x0, size=(h, w), mode='nearest')
+                x0_aligned = Conv(x0.shape[1], self.inter_dim, 1, 1)(x0_aligned)
+            else:
+                x0_aligned = x0
+
+            # P3: upsample to P2 size, then down_1 to inter_dim
+            x1_up = F.interpolate(x1, size=(h, w), mode='nearest')
+            x1_aligned = self.down_1(x1_up)
+
+            # P4: upsample to P2 size, then down_2 to inter_dim
+            x2_up = F.interpolate(x2, size=(h, w), mode='nearest')
+            x2_aligned = self.down_2(x2_up)
 
         elif self.level == 1:
-            level_0_resized = self.compress_level_0(F.max_pool2d(x_level_0, kernel_size=2, stride=2))
-            level_1_resized = x_level_1
-            level_2_resized = F.interpolate(x_level_2, scale_factor=2, mode='nearest')
+            # target scale: x1 (P3)
+            h, w = x1.shape[2], x1.shape[3]
 
-        elif self.level == 2:
-            level_0_resized = self.compress_level_0(F.max_pool2d(x_level_0, kernel_size=4, stride=4))
-            level_1_resized = self.compress_level_1(F.max_pool2d(x_level_1, kernel_size=2, stride=2))
-            level_2_resized = x_level_2
+            # P2: downsample to P3 size, conv to inter_dim
+            x0_down = F.max_pool2d(x0, kernel_size=2, stride=2)
+            x0_aligned = self.compress_0(x0_down)
 
-        level_0_weight_v = self.weight_level_0(level_0_resized)
-        level_1_weight_v = self.weight_level_1(level_1_resized)
-        level_2_weight_v = self.weight_level_2(level_2_resized)
+            # P3: keep size, 1x1 conv if needed
+            if x1.shape[1] != self.inter_dim:
+                x1_aligned = Conv(x1.shape[1], self.inter_dim, 1, 1)(x1)
+            else:
+                x1_aligned = x1
 
-        levels_weight_v = torch.cat((level_0_weight_v, level_1_weight_v, level_2_weight_v), 1)
-        levels_weight = self.weight_levels(levels_weight_v)
-        levels_weight = F.softmax(levels_weight, dim=1)
+            # P4: upsample to P3 size, conv to inter_dim
+            x2_up = F.interpolate(x2, size=(h, w), mode='nearest')
+            x2_aligned = self.down_2(x2_up)
 
-        fused_out = (
-            level_0_resized * levels_weight[:, 0:1, :, :]
-            + level_1_resized * levels_weight[:, 1:2, :, :]
-            + level_2_resized * levels_weight[:, 2:3, :, :]
+        else:  # level == 2
+            # target scale: x2 (P4)
+            h, w = x2.shape[2], x2.shape[3]
+
+            # P2: downsample to P4 size, conv to inter_dim
+            x0_down = F.max_pool2d(x0, kernel_size=4, stride=4)
+            x0_aligned = self.compress_0(x0_down)
+
+            # P3: downsample to P4 size, conv to inter_dim
+            x1_down = F.max_pool2d(x1, kernel_size=2, stride=2)
+            x1_aligned = self.compress_1(x1_down)
+
+            # P4: keep size, conv if needed
+            if x2.shape[1] != self.inter_dim:
+                x2_aligned = Conv(x2.shape[1], self.inter_dim, 1, 1)(x2)
+            else:
+                x2_aligned = x2
+
+        # compute weights
+        w0 = self.weight_level_0(x0_aligned)
+        w1 = self.weight_level_1(x1_aligned)
+        w2 = self.weight_level_2(x2_aligned)
+
+        weights = torch.cat((w0, w1, w2), 1)
+        weights = self.weight_levels(weights)
+        weights = F.softmax(weights, dim=1)
+
+        # fuse
+        fused = (
+            x0_aligned * weights[:, 0:1, :, :]
+            + x1_aligned * weights[:, 1:2, :, :]
+            + x2_aligned * weights[:, 2:3, :, :]
         )
 
-        out = self.expand(fused_out)
+        out = self.expand(fused)
         return out
