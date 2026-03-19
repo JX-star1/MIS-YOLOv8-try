@@ -723,105 +723,56 @@ class ASFF(nn.Module):
             level: int, target fusion level (0, 1, 2)
         """
         super().__init__()
-        self.level = level
-        self.dim = c1  # [c2, c3, c4]
+        self.level = level          # 0, 1, or 2
+        self.dim = c1               # [c2, c3, c4]
         self.inter_dim = self.dim[level]  # use target level channels as intermediate dim
 
         compress_c = 8  # channel for attention weights
 
-        # ------ branch-specific resize & channel align modules ------
-        if level == 0:
-            # target: highest resolution (P2)
-            # x0: P2, x1: P3, x2: P4
-            # after resize, all three must have channels = inter_dim = dim[0]
-            self.down_1 = Conv(self.dim[1], self.inter_dim, 3, 2)  # P3 -> P2 size & channels
-            self.down_2 = Conv(self.dim[2], self.inter_dim, 3, 2)  # P4 -> P2 size & channels
+        # 3 个 1x1 conv，用于把各路通道统一到 inter_dim
+        self.align0 = Conv(self.dim[0], self.inter_dim, 1, 1)
+        self.align1 = Conv(self.dim[1], self.inter_dim, 1, 1)
+        self.align2 = Conv(self.dim[2], self.inter_dim, 1, 1)
 
-        elif level == 1:
-            # target: middle resolution (P3)
-            # after resize, all three must have channels = inter_dim = dim[1]
-            self.compress_0 = Conv(self.dim[0], self.inter_dim, 1, 1)  # P2 channels -> P3 channels
-            self.down_2 = Conv(self.dim[2], self.inter_dim, 3, 2)      # P4 -> P3 size & channels
-
-        elif level == 2:
-            # target: lowest resolution (P4)
-            # after resize, all three must have channels = inter_dim = dim[2]
-            self.compress_0 = Conv(self.dim[0], self.inter_dim, 1, 1)  # P2 channels -> P4 channels
-            self.compress_1 = Conv(self.dim[1], self.inter_dim, 1, 1)  # P3 channels -> P4 channels
-
-        # ------ weight layers: input channels = inter_dim for all three ------
+        # 权重生成分支：输入通道 = inter_dim
         self.weight_level_0 = Conv(self.inter_dim, compress_c, 1, 1)
         self.weight_level_1 = Conv(self.inter_dim, compress_c, 1, 1)
         self.weight_level_2 = Conv(self.inter_dim, compress_c, 1, 1)
         self.weight_levels = nn.Conv2d(compress_c * 3, 3, kernel_size=1, stride=1, padding=0)
 
-        # final expand conv
+        # 输出卷积
         self.expand = Conv(self.inter_dim, c2, 3, 1)
 
     def forward(self, x):
         """
         x: list of 3 feature maps [x0, x1, x2]
-           x0: highest resolution (P2), x2: lowest resolution (P4)
+           x0: highest resolution (P2)
+           x1: middle resolution  (P3)
+           x2: lowest resolution  (P4)
         """
         x0, x1, x2 = x
 
+        # 选择目标尺度
         if self.level == 0:
-            # target scale: x0 (P2)
-            h, w = x0.shape[2], x0.shape[3]
-
-            # P2: keep size, reduce/keep channels to inter_dim (use 1x1 conv if dim[0] != inter_dim)
-            if x0.shape[1] != self.inter_dim:
-                # rare case when dim[0] != inter_dim because of width scaling
-                x0_aligned = F.interpolate(x0, size=(h, w), mode='nearest')
-                x0_aligned = Conv(x0.shape[1], self.inter_dim, 1, 1)(x0_aligned)
-            else:
-                x0_aligned = x0
-
-            # P3: upsample to P2 size, then down_1 to inter_dim
-            x1_up = F.interpolate(x1, size=(h, w), mode='nearest')
-            x1_aligned = self.down_1(x1_up)
-
-            # P4: upsample to P2 size, then down_2 to inter_dim
-            x2_up = F.interpolate(x2, size=(h, w), mode='nearest')
-            x2_aligned = self.down_2(x2_up)
-
+            target = x0
         elif self.level == 1:
-            # target scale: x1 (P3)
-            h, w = x1.shape[2], x1.shape[3]
+            target = x1
+        else:  # self.level == 2
+            target = x2
 
-            # P2: downsample to P3 size, conv to inter_dim
-            x0_down = F.max_pool2d(x0, kernel_size=2, stride=2)
-            x0_aligned = self.compress_0(x0_down)
+        H, W = target.shape[2], target.shape[3]
 
-            # P3: keep size, 1x1 conv if needed
-            if x1.shape[1] != self.inter_dim:
-                x1_aligned = Conv(x1.shape[1], self.inter_dim, 1, 1)(x1)
-            else:
-                x1_aligned = x1
+        # 将 3 路特征在空间上统一到目标尺度
+        x0_resized = F.interpolate(x0, size=(H, W), mode='nearest')
+        x1_resized = F.interpolate(x1, size=(H, W), mode='nearest')
+        x2_resized = F.interpolate(x2, size=(H, W), mode='nearest')
 
-            # P4: upsample to P3 size, conv to inter_dim
-            x2_up = F.interpolate(x2, size=(h, w), mode='nearest')
-            x2_aligned = self.down_2(x2_up)
+        # 通道对齐到 inter_dim
+        x0_aligned = self.align0(x0_resized)
+        x1_aligned = self.align1(x1_resized)
+        x2_aligned = self.align2(x2_resized)
 
-        else:  # level == 2
-            # target scale: x2 (P4)
-            h, w = x2.shape[2], x2.shape[3]
-
-            # P2: downsample to P4 size, conv to inter_dim
-            x0_down = F.max_pool2d(x0, kernel_size=4, stride=4)
-            x0_aligned = self.compress_0(x0_down)
-
-            # P3: downsample to P4 size, conv to inter_dim
-            x1_down = F.max_pool2d(x1, kernel_size=2, stride=2)
-            x1_aligned = self.compress_1(x1_down)
-
-            # P4: keep size, conv if needed
-            if x2.shape[1] != self.inter_dim:
-                x2_aligned = Conv(x2.shape[1], self.inter_dim, 1, 1)(x2)
-            else:
-                x2_aligned = x2
-
-        # compute weights
+        # 现在三路的 shape 都是 [N, inter_dim, H, W]，可以安全计算权重
         w0 = self.weight_level_0(x0_aligned)
         w1 = self.weight_level_1(x1_aligned)
         w2 = self.weight_level_2(x2_aligned)
@@ -830,7 +781,7 @@ class ASFF(nn.Module):
         weights = self.weight_levels(weights)
         weights = F.softmax(weights, dim=1)
 
-        # fuse
+        # 加权融合
         fused = (
             x0_aligned * weights[:, 0:1, :, :]
             + x1_aligned * weights[:, 1:2, :, :]
