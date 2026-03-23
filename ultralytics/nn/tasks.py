@@ -52,6 +52,9 @@ from ultralytics.nn.modules import (
     Silence,
     WorldDetect,
     ASFF, #新增2
+    SPD, 
+    SAC,
+    SDA, #新增3
 )
 from ultralytics.utils import DEFAULT_CFG_DICT, DEFAULT_CFG_KEYS, LOGGER, colorstr, emojis, yaml_load
 from ultralytics.utils.checks import check_requirements, check_suffix, check_yaml
@@ -925,6 +928,11 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             level = args[1]
             # 构造 ASFF(c1, c2, level)
             args = [c1, c2, level]
+        elif m is SDA:
+            c1 = ch[f]  # 输入通道
+            c2, scale, k, r = args
+            args = [c1, c2, scale, k, r]
+            ch_out = c2
         elif m in {Detect, WorldDetect, Segment, Pose, OBB, ImagePoolingAttn}:
             args.append([ch[x] for x in f])
             if m is Segment:

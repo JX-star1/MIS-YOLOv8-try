@@ -48,6 +48,9 @@ from .block import (
     ResNetLayer,
     Silence,
     ASFF, #add2
+    SPD,
+    SAC,
+    SDA, #add3
 )
 from .conv import (
     CBAM,
@@ -105,6 +108,9 @@ __all__ = (
     "C2",
     "C3",
     "MFE", #add1
+    "SPD", 
+    "SAC",
+    "SDA", #add3
     "C2f",
     "C2fAttn",
     "C3x",
