@@ -219,6 +219,9 @@ class MFE(nn.Module):
         with open('/tmp/mfe_params.log', 'a') as f:
             f.write(f"c1={c1}, c2={c2}, n={n}, shortcut={shortcut}, g={g}, e={e}\n")
         super().__init__()
+       
+        print(f"[MFE INIT] c1={c1}, c2={c2}, n={n}, shortcut={shortcut}")
+
         self.c = int(c2 * e)  # hidden channels
         self.cv1 = Conv(c1, 2 * self.c, 1, 1)
         # 新增分支：1x1降维 + 3x3卷积
