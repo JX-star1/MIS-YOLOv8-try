@@ -545,6 +545,10 @@ class RTDETRDetectionModel(DetectionModel):
         y, dt, embeddings = [], [], []  # outputs
         for m in self.model[:-1]:  # except the head part
             if m.f != -1:  # if not from previous layer
+                # 打印 Concat 或多路径层的输入形状
+                if isinstance(m, Concat):
+                    print(f"Layer {m.i} Concat inputs: {[y[j].shape for j in m.f if j != -1]}")
+                    
                 x = y[m.f] if isinstance(m.f, int) else [x if j == -1 else y[j] for j in m.f]  # from earlier layers
             if profile:
                 self._profile_one_layer(m, x, dt)
@@ -931,20 +935,18 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             args = [c1, c2, level]
         elif m is MFE:
             c1 = ch[f]
-            # 严格根据 YAML 传入的参数数量来解析
+            # 强制解析：根据 args 长度分配
             if len(args) == 3:
-                c2, n_internal, shortcut = args
+                c2, n, shortcut = args
             elif len(args) == 2:
                 c2, shortcut = args
-                n_internal = 3  # 默认内部 Bottleneck 循环 3 次
+                n = 3 # 默认 n=3
             else:
                 c2 = args[0]
-                n_internal = 3
+                n = 3
                 shortcut = True
-            
-            # 重新组合参数：c1, c2, n, shortcut
-            # 注意：这里的 n_internal 才是传给 MFE 内部循环的次数
-            args = [c1, c2, n_internal, shortcut]
+             # 重新包装 args，确保传递给 MFE 的顺序是 c1, c2, n, shortcut
+            args = [c1, c2, int(n), bool(shortcut)]
             ch_out = c2
         elif m is SDA:
             c1 = ch[f]  # 输入通道
