@@ -931,7 +931,7 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
         elif m is MFE:
             c1 = ch[f]
             c2, n, shortcut = args          # YAML: [c2, n, shortcut]
-            args = [c1, c2, n, shortcut, 1, 0.5]  # g=1, e=0.5
+            args = [c1, c2, n, shortcut]  # g=1, e=0.5
             ch_out = c2
         elif m is SDA:
             c1 = ch[f]  # 输入通道
