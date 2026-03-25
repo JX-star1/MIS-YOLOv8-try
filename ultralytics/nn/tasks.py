@@ -930,8 +930,21 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             args = [c1, c2, level]
         elif m is MFE:
             c1 = ch[f]
-            c2, n, shortcut = args          # YAML: [c2, n, shortcut]
-            args = [c1, c2, n, shortcut]  # g=1, e=0.5
+            if len(args) == 3:
+                # YAML: [c2, n, shortcut]
+                c2, n, shortcut = args
+            elif len(args) == 2:
+                # YAML: [c2, shortcut]，给 head 用，默认 n=3 或你想要的值
+                c2, shortcut = args
+                n = 3  # 例如默认 3 层 Bottleneck
+            elif len(args) == 1:
+                # YAML: [c2]，都默认
+                c2 = args[0]
+                n = 3
+                shortcut = True
+            else:
+                raise ValueError(f"MFE got unexpected args: {args}")
+            args = [c1, c2, n, shortcut]  # 对应 MFE.__init__(c1,c2,n,shortcut)
             ch_out = c2
         elif m is SDA:
             c1 = ch[f]  # 输入通道
