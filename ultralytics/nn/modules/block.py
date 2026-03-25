@@ -214,7 +214,7 @@ class C2(nn.Module):
 
 class MFE(nn.Module):
     """Multilevel Feature Extraction module."""
-    def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5):
+    def __init__(self, c1, c2, n=3, shortcut=True, g=1, e=0.5):
         # 添加日志：将参数写入文件
         with open('/tmp/mfe_params.log', 'a') as f:
             f.write(f"c1={c1}, c2={c2}, n={n}, shortcut={shortcut}, g={g}, e={e}\n")
