@@ -927,24 +927,24 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             c2 = args[0]
             level = args[1]
             # 构造 ASFF(c1, c2, level)
+            ch_out = c2  # 必须添加这一行，否则后续层通道计算会出错
             args = [c1, c2, level]
         elif m is MFE:
             c1 = ch[f]
+            # 严格根据 YAML 传入的参数数量来解析
             if len(args) == 3:
-                # YAML: [c2, n, shortcut]
-                c2, n, shortcut = args
+                c2, n_internal, shortcut = args
             elif len(args) == 2:
-                # YAML: [c2, shortcut]，给 head 用，默认 n=3 或你想要的值
                 c2, shortcut = args
-                n = 3  # 例如默认 3 层 Bottleneck
-            elif len(args) == 1:
-                # YAML: [c2]，都默认
-                c2 = args[0]
-                n = 3
-                shortcut = True
+                n_internal = 3  # 默认内部 Bottleneck 循环 3 次
             else:
-                raise ValueError(f"MFE got unexpected args: {args}")
-            args = [c1, c2, n, shortcut]  # 对应 MFE.__init__(c1,c2,n,shortcut)
+                c2 = args[0]
+                n_internal = 3
+                shortcut = True
+            
+            # 重新组合参数：c1, c2, n, shortcut
+            # 注意：这里的 n_internal 才是传给 MFE 内部循环的次数
+            args = [c1, c2, n_internal, shortcut]
             ch_out = c2
         elif m is SDA:
             c1 = ch[f]  # 输入通道
