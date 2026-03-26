@@ -927,6 +927,8 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
         elif m is MFE:
             c1 = ch[f]             # 自动获取输入通道
             c2 = args[0]           # 从 [128, True] 中获取 128
+            if c2 != no:
+                c2 = make_divisible(c2 * gw, 8)
             shortcut = args[1] if len(args) > 1 else True    # 从 [128, True] 中获取 True
 
             # 【关键点】在这里，我们将参数重新打包成一个列表，顺序严格对应 MFE 的 __init__

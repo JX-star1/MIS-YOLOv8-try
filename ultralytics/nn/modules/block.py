@@ -694,7 +694,8 @@ class MFE(nn.Module):
         super().__init__()
        
         print(f"[MFE INIT] c1={c1}, c2={c2}, n={n}, shortcut={shortcut}")
-
+        
+        self.n = int(n)
         self.c = int(c2 * e)  # hidden channels
         self.cv1 = Conv(c1, self.c, 1, 1)
         
