@@ -931,6 +931,7 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
 
             # 【关键点】在这里，我们将参数重新打包成一个列表，顺序严格对应 MFE 的 __init__
             args = [c1, c2, int(n), bool(shortcut)]
+            n = 1
             ch_out = c2
         elif m is SDA:
             c1 = ch[f]  # 输入通道
