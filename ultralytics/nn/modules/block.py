@@ -696,15 +696,15 @@ class MFE(nn.Module):
         print(f"[MFE INIT] c1={c1}, c2={c2}, n={n}, shortcut={shortcut}")
 
         self.c = int(c2 * e)  # hidden channels
-        self.cv1 = Conv(c1, 2 * self.c, 1, 1)
+        self.cv1 = Conv(c1, self.c, 1, 1)
+        self.m = nn.ModuleList(Bottleneck(self.c, self.c, shortcut, g, k=(3, 3), e=1.0) for _ in range(n))
         # 新增分支：1x1降维 + 3x3卷积
         self.conv_extra = nn.Sequential(
             Conv(c1, self.c, 1, 1),   # 1x1 conv reduce
             Conv(self.c, self.c, 3, 1) # 3x3 conv, same padding
         )
         # 注意 cv2 的输入通道数增加了 self.c（来自额外分支）
-        self.cv2 = Conv((3 + n) * self.c, c2, 1) 
-        self.m = nn.ModuleList(Bottleneck(self.c, self.c, shortcut, g, k=(3, 3), e=1.0) for _ in range(n))
+        self.cv2 = Conv((2 + n) * self.c, c2, 1) 
 
     def forward(self, x):
         """Forward pass of the MFE module."""
@@ -713,6 +713,7 @@ class MFE(nn.Module):
         for module in self.m:
             y.append(module(y[-1]))
         # 在通道维度拼接并经过最后的 1x1 卷积
+        y.append(self.conv_extra(x))
         return self.cv2(torch.cat(y, 1))
 
 class SPD(nn.Module):
