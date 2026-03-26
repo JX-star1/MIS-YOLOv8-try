@@ -705,7 +705,7 @@ class MFE(nn.Module):
         )
         # 注意 cv2 的输入通道数增加了 self.c（来自额外分支）
         self.m = nn.ModuleList(Bottleneck(self.c, self.c, shortcut, g, k=(3, 3), e=1.0) for _ in range(n))
-        self.cv2 = Conv((2 + n) * self.c, c2, 1) 
+        self.cv2 = Conv((n + 2) * self.c, c2, 1) 
 
     def forward(self, x):
         """Forward pass of the MFE module."""
