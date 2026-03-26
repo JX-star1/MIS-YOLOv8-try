@@ -924,28 +924,13 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             args = [ch[f]]
         elif m is Concat:
             c2 = sum(ch[x] for x in f)
-        elif m is ASFF:
-            # f 是 [18, 21, 24] 这样的列表, 多输入通道列表
-            c1 = [ch[x] for x in (f if isinstance(f, list) else [f])]
-            # args = [c2, level]
-            c2 = args[0]
-            level = args[1]
-            # 构造 ASFF(c1, c2, level)
-            ch_out = c2  # 必须添加这一行，否则后续层通道计算会出错
-            args = [c1, c2, level]
         elif m is MFE:
-            c1 = ch[f]
-            # 强制解析：根据 args 长度分配
-            if len(args) == 3:
-                c2, n, shortcut = args
-            elif len(args) == 2:
-                c2, shortcut = args
-                n = 3 # 默认 n=3
-            else:
-                c2 = args[0]
-                n = 3
-                shortcut = True
-             # 重新包装 args，确保传递给 MFE 的顺序是 c1, c2, n, shortcut
+            c1 = ch[f]             # 自动获取输入通道
+            c2 = args[0]           # 从 [128, True] 中获取 128
+            shortcut = args[1]     # 从 [128, True] 中获取 True
+            n = n                  # 注意：这里的 n 是 YOLO 框架根据 gd 缩放后的结果（1, 2 或 3）
+
+            # 【关键点】在这里，我们将参数重新打包成一个列表，顺序严格对应 MFE 的 __init__
             args = [c1, c2, int(n), bool(shortcut)]
             ch_out = c2
         elif m is SDA:
@@ -953,6 +938,15 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             c2, scale, k, r = args
             args = [c1, c2, scale, k, r]
             ch_out = c2
+        elif m is ASFF:
+            # f 是 [18, 21, 24] 这样的列表, 多输入通道列表
+            c1 = [ch[x] for x in (f if isinstance(f, list) else [f])]
+            # args = [c2, level]
+            c2 = args[0]
+            level = args[1]
+            # 构造 ASFF(c1, c2, level)
+            args = [c1, c2, level]
+            ch_out = c2  # 必须添加这一行，否则后续层通道计算会出错
         elif m in {Detect, WorldDetect, Segment, Pose, OBB, ImagePoolingAttn}:
             args.append([ch[x] for x in f])
             if m is Segment:

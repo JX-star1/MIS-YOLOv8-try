@@ -4,7 +4,6 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from ultralytics.nn.modules.conv import Conv
 
 from .conv import Conv, DWConv, GhostConv, LightConv, RepConv, autopad
 from .transformer import TransformerBlock
@@ -211,145 +210,6 @@ class C2(nn.Module):
         """Forward pass through the CSP bottleneck with 2 convolutions."""
         a, b = self.cv1(x).chunk(2, 1)
         return self.cv2(torch.cat((self.m(a), b), 1))
-
-class MFE(nn.Module):
-    """Multilevel Feature Extraction module."""
-    def __init__(self, c1, c2, n=3, shortcut=True, g=1, e=0.5):
-        # 添加日志：将参数写入文件
-        with open('/tmp/mfe_params.log', 'a') as f:
-            f.write(f"c1={c1}, c2={c2}, n={n}, shortcut={shortcut}, g={g}, e={e}\n")
-        super().__init__()
-       
-        print(f"[MFE INIT] c1={c1}, c2={c2}, n={n}, shortcut={shortcut}")
-
-        self.c = int(c2 * e)  # hidden channels
-        self.cv1 = Conv(c1, 2 * self.c, 1, 1)
-        # 新增分支：1x1降维 + 3x3卷积
-        self.conv_extra = nn.Sequential(
-            Conv(c1, self.c, 1, 1),   # 1x1 conv reduce
-            Conv(self.c, self.c, 3, 1) # 3x3 conv, same padding
-        )
-        # 注意 cv2 的输入通道数增加了 self.c（来自额外分支）
-        self.cv2 = Conv((2 + n) * self.c + self.c, c2, 1)
-        self.m = nn.ModuleList(Bottleneck(self.c, self.c, shortcut, g, k=((3, 3), (3, 3)), e=1.0) for _ in range(n))
-
-    def forward(self, x):
-        """Forward pass of the MFE module."""
-        y = list(self.cv1(x).chunk(2, 1))
-        y.extend(m(y[-1]) for m in self.m)
-        extra = self.conv_extra(x)          # 计算额外分支
-        y.append(extra)                      # 拼接
-        return self.cv2(torch.cat(y, 1))
-
-class SPD(nn.Module):
-    """
-    Space-to-Depth + 1x1 or 3x3 Conv
-    - scale: 下采样因子（论文中等价于 stride）
-    - c2: 输出通道数
-    """
-    def __init__(self, c1, c2, scale=2, k=3, act=True):
-        super().__init__()
-        assert k in [1, 3], "Only 1x1 or 3x3 conv is commonly used in SPD-Conv."
-        self.scale = scale
-        self.conv = nn.Sequential(
-            nn.Conv2d(c1 * (scale ** 2), c2, k, padding=k // 2, bias=False),
-            nn.BatchNorm2d(c2),
-            nn.SiLU(inplace=True) if act else nn.Identity()
-        )
-
-    def forward(self, x):
-        """
-        input:  (B, C, H, W)
-        output: (B, C2, H/scale, W/scale)
-        """
-        b, c, h, w = x.size()
-        s = self.scale
-        assert h % s == 0 and w % s == 0, "H,W must be divisible by scale in SPD"
-
-        # space-to-depth: (B, C, H, W) -> (B, C*s*s, H/s, W/s)
-        x = x.view(b, c, h // s, s, w // s, s)
-        x = x.permute(0, 1, 3, 5, 2, 4).contiguous()
-        x = x.view(b, c * s * s, h // s, w // s)
-
-        return self.conv(x)
-
-class GlobalContext(nn.Module):
-    """简化版 Global Context 模块：GAP + 1x1 Conv + 加回主干"""
-    def __init__(self, c):
-        super().__init__()
-        self.conv = nn.Conv2d(c, c, 1, bias=False)
-
-    def forward(self, x):
-        # (B, C, H, W) -> (B, C, 1, 1)
-        context = F.adaptive_avg_pool2d(x, 1)
-        context = self.conv(context)
-        return x + context
-
-class SAC(nn.Module):
-    """
-    Switchable Atrous Convolution (简化版，无 DCN)
-    - c: 输入/输出通道数（通常保持不变）
-    - r: 大 atrous 的膨胀率，论文中常用 3
-    """
-    def __init__(self, c, r=3, kernel_size=3):
-        super().__init__()
-        assert kernel_size == 3, "SAC 通常使用 3x3 卷积"
-
-        self.r = r
-        self.gc1 = GlobalContext(c)
-        self.gc2 = GlobalContext(c)
-
-        # 卷积核 w，膨胀率=1
-        self.conv1 = nn.Conv2d(c, c, 3, padding=1, bias=False)
-
-        # Δw：与 conv1 共享结构，只存偏移。初始化为 0，即初始等效于 conv1
-        self.delta_w = nn.Conv2d(c, c, 3, padding=r, dilation=r, bias=False)
-        nn.init.zeros_(self.delta_w.weight)
-
-        # Switch 函数 S(x)：5x5 AvgPool + 1x1 Conv + Sigmoid
-        self.switch = nn.Sequential(
-            nn.AvgPool2d(kernel_size=5, stride=1, padding=2),
-            nn.Conv2d(c, c, 1, bias=True),
-            nn.Sigmoid()
-        )
-        # 初始化：bias=1，weight=0，以便初始 S(x)≈1
-        nn.init.zeros_(self.switch[1].weight)
-        nn.init.ones_(self.switch[1].bias)
-
-    def forward(self, x):
-        # Pre-global context
-        x = self.gc1(x)
-
-        # conv1: rate=1
-        y1 = self.conv1(x)
-
-        # conv2: rate=r, 使用 w+Δw 的形式等效实现
-        # 这里直接用 delta_w 做大膨胀率卷积，其权重初值为 0 只学习差异
-        y2 = self.delta_w(x)
-
-        s = self.switch(x)  # shape: (B, C, H, W)
-        y = s * y1 + (1.0 - s) * y2
-
-        # Post-global context
-        y = self.gc2(y)
-        return y
-
-class SDA(nn.Module):
-    """
-    SDA = SAC + SPD
-    - c1: 输入通道
-    - c2: 输出通道
-    - scale: SPD 的空间下采样倍率（一般=2）
-    """
-    def __init__(self, c1, c2, scale=2, k=3, r=3):
-        super().__init__()
-        self.sac = SAC(c1, r=r, kernel_size=k)
-        self.spd = SPD(c1, c2, scale=scale, k=k)
-
-    def forward(self, x):
-        x = self.sac(x)
-        x = self.spd(x)
-        return x
     
 class C2f(nn.Module):
     """Faster Implementation of CSP Bottleneck with 2 convolutions."""
@@ -825,6 +685,142 @@ class CBFuse(nn.Module):
         out = torch.sum(torch.stack(res + xs[-1:]), dim=0)
         return out
     
+class MFE(nn.Module):
+    """Multilevel Feature Extraction module."""
+    def __init__(self, c1, c2, n=1, shortcut=True, g=1, e=0.5):
+        # 添加日志：将参数写入文件
+        with open('/tmp/mfe_params.log', 'a') as f:
+            f.write(f"c1={c1}, c2={c2}, n={n}, shortcut={shortcut}, g={g}, e={e}\n")
+        super().__init__()
+       
+        print(f"[MFE INIT] c1={c1}, c2={c2}, n={n}, shortcut={shortcut}")
+
+        self.c = int(c2 * e)  # hidden channels
+        self.cv1 = Conv(c1, 2 * self.c, 1, 1)
+        # 新增分支：1x1降维 + 3x3卷积
+        self.conv_extra = nn.Sequential(
+            Conv(c1, self.c, 1, 1),   # 1x1 conv reduce
+            Conv(self.c, self.c, 3, 1) # 3x3 conv, same padding
+        )
+        # 注意 cv2 的输入通道数增加了 self.c（来自额外分支）
+        self.cv2 = Conv((3 + n) * self.c, c2, 1) 
+        self.m = nn.ModuleList(Bottleneck(self.c, self.c, shortcut, g, k=(3, 3), e=1.0) for _ in range(n))
+
+    def forward(self, x):
+        """Forward pass of the MFE module."""
+        y = [self.cv1(x)]
+        # 逐个运行 Bottleneck 并存入列表
+        for module in self.m:
+            y.append(module(y[-1]))
+        # 在通道维度拼接并经过最后的 1x1 卷积
+        return self.cv2(torch.cat(y, 1))
+
+class SPD(nn.Module):
+    """
+    Space-to-Depth + 1x1 or 3x3 Conv
+    - scale: 下采样因子（论文中等价于 stride）
+    - c2: 输出通道数
+    """
+    def __init__(self, c1, c2, scale=2, k=3, act=True):
+        super().__init__()
+        assert k in [1, 3], "Only 1x1 or 3x3 conv is commonly used in SPD-Conv."
+        self.scale = scale
+        self.conv = nn.Sequential(
+            nn.Conv2d(c1 * (scale ** 2), c2, k, padding=k // 2, bias=False),
+            nn.BatchNorm2d(c2),
+            nn.SiLU(inplace=True) if act else nn.Identity()
+        )
+
+    def forward(self, x):
+        """
+        input:  (B, C, H, W)
+        output: (B, C2, H/scale, W/scale)
+        """
+        b, c, h, w = x.size()
+        s = self.scale
+        assert h % s == 0 and w % s == 0, "H,W must be divisible by scale in SPD"
+
+        # space-to-depth: (B, C, H, W) -> (B, C*s*s, H/s, W/s)
+        x = x.view(b, c, h // s, s, w // s, s)
+        x = x.permute(0, 1, 3, 5, 2, 4).contiguous()
+        x = x.view(b, c * s * s, h // s, w // s)
+
+        return self.conv(x)
+
+class GlobalContext(nn.Module):
+    """简化版 Global Context 模块：GAP + 1x1 Conv + 加回主干"""
+    def __init__(self, c):
+        super().__init__()
+        self.conv = nn.Conv2d(c, c, 1, bias=False)
+
+    def forward(self, x):
+        # (B, C, H, W) -> (B, C, 1, 1)
+        context = F.adaptive_avg_pool2d(x, 1)
+        context = self.conv(context)
+        return x + context
+
+class SAC(nn.Module):
+    """
+    Switchable Atrous Convolution (简化版，无 DCN)
+    - c: 输入/输出通道数（通常保持不变）
+    - r: 大 atrous 的膨胀率，论文中常用 3
+    """
+    def __init__(self, c, r=3, kernel_size=3):
+        super().__init__()
+        assert kernel_size == 3, "SAC 通常使用 3x3 卷积"
+        self.r = r
+        self.gc1 = GlobalContext(c)
+        self.gc2 = GlobalContext(c)
+
+        # 卷积核 w，膨胀率=1
+        self.conv1 = nn.Conv2d(c, c, 3, padding=1, bias=False)
+        # Δw：与 conv1 共享结构，只存偏移。初始化为 0，即初始等效于 conv1
+        self.delta_w = nn.Conv2d(c, c, 3, padding=r, dilation=r, bias=False)
+        nn.init.zeros_(self.delta_w.weight)
+
+
+        # Switch 函数 S(x)：5x5 AvgPool + 1x1 Conv + Sigmoid
+        self.switch = nn.Sequential(
+            nn.AvgPool2d(kernel_size=5, stride=1, padding=2),
+            nn.Conv2d(c, c, 1, bias=True),
+            nn.Sigmoid()
+        )
+        # 初始化：bias=1，weight=0，以便初始 S(x)≈1
+        nn.init.zeros_(self.switch[1].weight)
+        nn.init.ones_(self.switch[1].bias)
+
+    def forward(self, x):
+        # Pre-global context
+        x = self.gc1(x)
+        # conv1: rate=1
+        y1 = self.conv1(x)
+        # conv2: rate=r, 使用 w+Δw 的形式等效实现
+        # 这里直接用 delta_w 做大膨胀率卷积，其权重初值为 0 只学习差异
+        y2 = self.delta_w(x)
+        s = self.switch(x)  # shape: (B, C, H, W)
+        y = s * y1 + (1.0 - s) * y2
+        # Post-global context
+        y = self.gc2(y)
+        return y
+
+class SDA(nn.Module):
+    """
+    SDA = SAC + SPD
+    - c1: 输入通道
+    - c2: 输出通道
+    - scale: SPD 的空间下采样倍率（一般=2）
+    """
+    def __init__(self, c1, c2, scale=2, k=3, r=3):
+        super().__init__()
+        self.sac = SAC(c1, r=r, kernel_size=k)
+        self.spd = SPD(c1, c2, scale=scale, k=k)
+
+
+    def forward(self, x):
+        x = self.sac(x)
+        x = self.spd(x)
+        return x
+
 class ASFF(nn.Module):
     """Adaptive Spatial Feature Fusion for 3-scale feature fusion."""
 
@@ -842,18 +838,26 @@ class ASFF(nn.Module):
 
         compress_c = 8  # channel for attention weights
 
-        # 3 个 1x1 conv，用于把各路通道统一到 inter_dim
-        self.align0 = Conv(self.dim[0], self.inter_dim, 1, 1)
-        self.align1 = Conv(self.dim[1], self.inter_dim, 1, 1)
-        self.align2 = Conv(self.dim[2], self.inter_dim, 1, 1)
+        # 1. 特征对齐层：根据 level 差异决定是卷积下采样还是插值上采样
+        self.align_layers = nn.ModuleList()
+        for i, channel in enumerate(self.dim):
+            if i == level:
+                # 本层：恒等映射或 1x1 卷积调整通道
+                self.align_layers.append(Conv(channel, self.inter_dim, 1, 1))
+            elif i < level:
+                # 上层 (高分辨率) -> 本层 (低分辨率): 使用步长卷积下采样
+                stride = 2 ** (level - i)
+                self.align_layers.append(Conv(channel, self.inter_dim, 3, stride))
+            else:
+                # 下层 (低分辨率) -> 本层 (高分辨率): 1x1 卷积 + 上采样
+                self.align_layers.append(Conv(channel, self.inter_dim, 1, 1))
 
-        # 权重生成分支：输入通道 = inter_dim
-        self.weight_level_0 = Conv(self.inter_dim, compress_c, 1, 1)
-        self.weight_level_1 = Conv(self.inter_dim, compress_c, 1, 1)
-        self.weight_level_2 = Conv(self.inter_dim, compress_c, 1, 1)
-        self.weight_levels = nn.Conv2d(compress_c * 3, 3, kernel_size=1, stride=1, padding=0)
+        # 2. 权重预测层
+        self.weight_conv = nn.Sequential(
+            Conv(self.inter_dim * 3, compress_c, 1, 1),
+            nn.Conv2d(compress_c, 3, kernel_size=1) # 输出 3 个通道对应 alpha, beta, gamma
+        )
 
-        # 输出卷积
         self.expand = Conv(self.inter_dim, c2, 3, 1)
 
     def forward(self, x):
@@ -863,43 +867,23 @@ class ASFF(nn.Module):
            x1: middle resolution  (P3)
            x2: lowest resolution  (P4)
         """
-        x0, x1, x2 = x
+        target_size = x[self.level].shape[2:]
+        
+        # 统一空间尺度与通道
+        aligned_x = []
+        for i, layer in enumerate(self.align_layers):
+            feat = layer(x[i])
+            if feat.shape[2:] != target_size:
+                feat = F.interpolate(feat, size=target_size, mode='bilinear', align_corners=False)
+            aligned_x.append(feat)
 
-        # 选择目标尺度
-        if self.level == 0:
-            target = x0
-        elif self.level == 1:
-            target = x1
-        else:  # self.level == 2
-            target = x2
+        # 融合权重计算
+        combined = torch.cat(aligned_x, dim=1) # [N, inter_dim*3, H, W]
+        # 文献推荐基于全局信息生成权重
+        weights = self.weight_conv(combined)
+        weights = F.softmax(weights, dim=1) # 在通道维度归一化
 
-        H, W = target.shape[2], target.shape[3]
+        # 自适应加权求和
+        fused = (aligned_x[0] * weights[:, 0:1, :, :] + aligned_x[1] * weights[:, 1:2, :, :] + aligned_x[2] * weights[:, 2:3, :, :])
 
-        # 将 3 路特征在空间上统一到目标尺度
-        x0_resized = F.interpolate(x0, size=(H, W), mode='nearest')
-        x1_resized = F.interpolate(x1, size=(H, W), mode='nearest')
-        x2_resized = F.interpolate(x2, size=(H, W), mode='nearest')
-
-        # 通道对齐到 inter_dim
-        x0_aligned = self.align0(x0_resized)
-        x1_aligned = self.align1(x1_resized)
-        x2_aligned = self.align2(x2_resized)
-
-        # 现在三路的 shape 都是 [N, inter_dim, H, W]，可以安全计算权重
-        w0 = self.weight_level_0(x0_aligned)
-        w1 = self.weight_level_1(x1_aligned)
-        w2 = self.weight_level_2(x2_aligned)
-
-        weights = torch.cat((w0, w1, w2), 1)
-        weights = self.weight_levels(weights)
-        weights = F.softmax(weights, dim=1)
-
-        # 加权融合
-        fused = (
-            x0_aligned * weights[:, 0:1, :, :]
-            + x1_aligned * weights[:, 1:2, :, :]
-            + x2_aligned * weights[:, 2:3, :, :]
-        )
-
-        out = self.expand(fused)
-        return out
+        return self.expand(fused)
