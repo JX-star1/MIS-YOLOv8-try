@@ -839,6 +839,17 @@ class ASFF(nn.Module):
         self.dim = c1               # [c2, c3, c4]
         self.inter_dim = self.dim[level]  # use target level channels as intermediate dim
 
+        # 添加调试打印
+        print(f"[ASFF Debug] 输入通道列表 dim={c1}")
+        print(f"[ASFF Debug] 目标层级 level={level}")
+        print(f"[ASFF Debug] 中间维度 inter_dim={self.inter_dim}")
+        print(f"[ASFF Debug] 输出通道数 c2={c2}")  # 注意：c2 是输出通道数，但在对齐层中未使用
+    
+        # 检查是否 c2 被错误地用作 inter_dim
+        if c2 != self.inter_dim:
+            print(f"[ASFF Warning] 输出通道数 c2={c2} 与 inter_dim={self.inter_dim} 不匹配！")
+            print(f"              ASFF 内部将使用 inter_dim={self.inter_dim} 作为对齐层通道数")
+    
         compress_c = 8  # channel for attention weights
 
         # 1. 特征对齐层：根据 level 差异决定是卷积下采样还是插值上采样
