@@ -52,6 +52,6 @@ head:
   # ASFF fusion for P2/P3/P4
   - [[18, 21, 24], 1, ASFF, [64, 0]]              # 25 fused P2
   - [[18, 21, 24], 1, ASFF, [128, 1]]              # 26 fused P3
-  - [[18, 21, 24], 1, ASFF, [256, 2]]              # 27 fused P4
+  - [[18, 21, 24], 1, ASFF, [128, 2]]              # 27 fused P4
 
   - [[25, 26, 27], 1, Detect, [nc]]

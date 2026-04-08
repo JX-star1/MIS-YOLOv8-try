@@ -880,8 +880,6 @@ class ASFF(nn.Module):
             nn.Conv2d(compress_c, 3, kernel_size=1) # 输出 3 个通道对应 alpha, beta, gamma
         )
 
-        self.expand = Conv(self.inter_dim, c2, 3, 1)
-
         # 3. 最终的特征扩展层
         # 如果c2与target_dim不同，则需要调整通道数；否则使用恒等映射
         if c2 != target_dim:

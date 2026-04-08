@@ -946,9 +946,12 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             # args = [c2, level]
             c2 = args[0]
             level = args[1]
-            # 构造 ASFF(c1, c2, level)
+            # ⚠️ c2 必须等于 c1[level]，否则 expand 层逻辑会出错
+            if c2 != c1[level]:
+                print(f"[WARNING] ASFF level={level}: yaml c2={c2} != c1[level]={c1[level]}, 强制对齐")
+                c2 = c1[level]
             args = [c1, c2, level]
-            ch_out = c2  # 必须添加这一行，否则后续层通道计算会出错
+            ch_out = c2
         elif m in {Detect, WorldDetect, Segment, Pose, OBB, ImagePoolingAttn}:
             args.append([ch[x] for x in f])
             if m is Segment:
@@ -974,6 +977,7 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
         layers.append(m_)
         if i == 0:
             ch = []
+        print(f"layer {i}: {m.__name__ if hasattr(m,'__name__') else m} ch_out={ch_out}")
         ch.append(c2)
     return nn.Sequential(*layers), sorted(save)
 
