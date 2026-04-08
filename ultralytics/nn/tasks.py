@@ -938,6 +938,8 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
         elif m is SDA:
             c1 = ch[f]  # 输入通道
             c2, scale, k, r = args
+            if c2 != no:                              # ← 新增
+                c2 = make_divisible(c2 * gw, 8)      # ← 新增，与 MFE 保持一致
             args = [c1, c2, scale, k, r]
             ch_out = c2
         elif m is ASFF:
