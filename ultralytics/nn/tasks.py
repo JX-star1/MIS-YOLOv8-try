@@ -836,8 +836,213 @@ def attempt_load_one_weight(weight, device=None, inplace=True, fuse=False):
     # Return model and ckpt
     return model, ckpt
 
-
 def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
+    """Parse a YOLO model.yaml dictionary into a PyTorch model."""
+    import ast
+    import contextlib
+
+
+    # Args
+    max_channels = float("inf")
+    nc, act, scales = (d.get(x) for x in ("nc", "activation", "scales"))
+    depth, width, kpt_shape = (d.get(x, 1.0) for x in ("depth_multiple", "width_multiple", "kpt_shape"))
+    if scales:
+        scale = d.get("scale")
+        if not scale:
+            scale = tuple(scales.keys())[0]
+            LOGGER.warning(f"WARNING ⚠️ no model scale passed. Assuming scale='{scale}'.")
+        depth, width, max_channels = scales[scale]
+
+
+    if act:
+        Conv.default_act = eval(act)  # redefine default activation, i.e. Conv.default_act = nn.SiLU()
+        if verbose:
+            LOGGER.info(f"{colorstr('activation:')} {act}")  # print
+
+
+    if verbose:
+        LOGGER.info(f"\n{'':>3}{'from':>20}{'n':>3}{'params':>10}  {'module':<45}{'arguments':<30}")
+    ch = [ch]
+    layers, save, c2 = [], [], ch[-1]  # layers, savelist, ch out
+    
+    for i, (f, n, m, args) in enumerate(d["backbone"] + d["head"]):  # from, number, module, args
+        m = getattr(torch.nn, m[3:]) if "nn." in m else globals()[m]  # get module
+        for j, a in enumerate(args):
+            if isinstance(a, str):
+                with contextlib.suppress(ValueError):
+                    args[j] = locals()[a] if a in locals() else ast.literal_eval(a)
+
+
+        n = n_ = max(round(n * depth), 1) if n > 1 else n  # depth gain
+        
+        # 🔑 关键修复：在处理模块前初始化 ch_out
+        ch_out = ch[f] if isinstance(f, int) else ch[f[-1]] if isinstance(f, list) else ch[f]
+        
+        if m in {
+            Classify,
+            Conv,
+            ConvTranspose,
+            GhostConv,
+            Bottleneck,
+            GhostBottleneck,
+            SPP,
+            SPPF,
+            DWConv,
+            Focus,
+            BottleneckCSP,
+            C1,
+            C2,
+            C2f,
+            MFE,  # add1
+            RepNCSPELAN4,
+            ADown,
+            SPPELAN,
+            C2fAttn,
+            C3,
+            C3TR,
+            C3Ghost,
+            nn.ConvTranspose2d,
+            DWConvTranspose2d,
+            C3x,
+            RepC3,
+        }:
+            c1, c2 = ch[f], args[0]
+            if c2 != nc:  # if c2 not equal to number of classes (i.e. for Classify() output)
+                c2 = make_divisible(min(c2, max_channels) * width, 8)
+            if m is C2fAttn:
+                args[1] = make_divisible(min(args[1], max_channels // 2) * width, 8)  # embed channels
+                args[2] = int(
+                    max(round(min(args[2], max_channels // 2 // 32)) * width, 1) if args[2] > 1 else args[2]
+                )  # num heads
+
+
+            args = [c1, c2, *args[1:]]
+            if m in {BottleneckCSP, C1, C2, C2f, C2fAttn, C3, C3TR, C3Ghost, C3x, RepC3}:
+                args.insert(2, n)  # number of repeats
+                n = 1
+            
+            # ✅ 修复：确保定义 ch_out
+            ch_out = c2
+            
+        elif m is AIFI:
+            args = [ch[f], *args]
+            # ✅ 修复：确保定义 ch_out
+            ch_out = ch[f]
+            
+        elif m in {HGStem, HGBlock}:
+            c1, cm, c2 = ch[f], args[0], args[1]
+            args = [c1, cm, c2, *args[2:]]
+            if m is HGBlock:
+                args.insert(4, n)  # number of repeats
+                n = 1
+            # ✅ 修复：确保定义 ch_out
+            ch_out = c2
+            
+        elif m is ResNetLayer:
+            c2 = args[1] if args[3] else args[1] * 4
+            # ✅ 修复：确保定义 ch_out
+            ch_out = c2
+            
+        elif m is nn.BatchNorm2d:
+            args = [ch[f]]
+            # ✅ 修复：确保定义 ch_out（BatchNorm 不改变通道数）
+            ch_out = ch[f]
+            
+        elif m is Concat:
+            c2 = sum(ch[x] for x in f)
+            # ✅ 修复：确保定义 ch_out
+            ch_out = c2
+            
+        elif m is MFE:
+            c1 = ch[f]             # 自动获取输入通道
+            c2 = args[0]           # 从 [128, True] 中获取 128
+            if c2 != nc:  # 改为 nc 而不是 no
+                c2 = make_divisible(c2 * width, 8)  # 改为 width 而不是 gw
+            shortcut = args[1] if len(args) > 1 else True    # 从 [128, True] 中获取 True
+
+            # 【关键点】在这里，我们将参数重新打包成一个列表，顺序严格对应 MFE 的 __init__
+            args = [c1, c2, int(n), bool(shortcut)]
+            n = 1
+            # ✅ 确保定义 ch_out
+            ch_out = c2
+            
+        elif m is SDA:
+            c1 = ch[f]  # 输入通道
+            c2, scale, k, r = args
+            if c2 != nc:  # 改为 nc 而不是 no
+                c2 = make_divisible(c2 * width, 8)  # 改为 width 而不是 gw
+            args = [c1, c2, scale, k, r]
+            # ✅ 确保定义 ch_out
+            ch_out = c2
+            
+        elif m is ASFF:
+            # f 是 [18, 21, 24] 这样的列表, 多输入通道列表
+            c1 = [ch[x] for x in (f if isinstance(f, list) else [f])]
+            # args = [c2, level]
+            c2 = args[0]
+            level = args[1]
+            # c2 必须等于 c1[level]，否则 expand 层逻辑会出错
+            if c2 != c1[level]:
+                print(f"[WARNING] ASFF level={level}: yaml c2={c2} != c1[level]={c1[level]}, 强制对齐")
+                c2 = c1[level]
+            args = [c1, c2, level]
+            # ✅ 确保定义 ch_out
+            ch_out = c2
+            
+        elif m in {Detect, WorldDetect, Segment, Pose, OBB, ImagePoolingAttn}:
+            args.append([ch[x] for x in f])
+            if m is Segment:
+                args[2] = make_divisible(min(args[2], max_channels) * width, 8)
+            # ✅ 修复：为 Detect 等模块定义 ch_out
+            # 对于 head 的最后模块，通常输出通道数由输入决定
+            if isinstance(f, list):
+                ch_out = ch[f[-1]]
+            else:
+                ch_out = ch[f]
+            
+        elif m is RTDETRDecoder:  # special case, channels arg must be passed in index 1
+            args.insert(1, [ch[x] for x in f])
+            # ✅ 修复：确保定义 ch_out
+            ch_out = ch[f[-1]] if isinstance(f, list) else ch[f]
+            
+        elif m is CBLinear:
+            c2 = args[0]
+            c1 = ch[f]
+            args = [c1, c2, *args[1:]]
+            # ✅ 修复：确保定义 ch_out
+            ch_out = c2
+            
+        elif m is CBFuse:
+            c2 = ch[f[-1]]
+            # ✅ 修复：确保定义 ch_out
+            ch_out = c2
+            
+        else:
+            c2 = ch[f]
+            # ✅ 修复：确保定义 ch_out（作为最后的 fallback）
+            ch_out = c2
+
+
+        m_ = nn.Sequential(*(m(*args) for _ in range(n))) if n > 1 else m(*args)  # module
+        t = str(m)[8:-2].replace("__main__.", "")  # module type
+        m.np = sum(x.numel() for x in m_.parameters())  # number params
+        m_.i, m_.f, m_.type = i, f, t  # attach index, 'from' index, type
+        if verbose:
+            LOGGER.info(f"{i:>3}{str(f):>20}{n_:>3}{m.np:10.0f}  {t:<45}{str(args):<30}")  # print
+        save.extend(x % i for x in ([f] if isinstance(f, int) else f) if x != -1)  # append to savelist
+        layers.append(m_)
+        if i == 0:
+            ch = []
+        
+        # 🔍 调试输出（可选）
+        print(f"layer {i}: {m.__name__ if hasattr(m, '__name__') else m} ch_out={ch_out}")
+        
+        # ✅ 修复：使用 ch_out 而不是 c2
+        ch.append(ch_out)
+        
+    return nn.Sequential(*layers), sorted(save)
+
+#def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
     """Parse a YOLO model.yaml dictionary into a PyTorch model."""
     import ast
 
@@ -948,7 +1153,7 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             # args = [c2, level]
             c2 = args[0]
             level = args[1]
-            # ⚠️ c2 必须等于 c1[level]，否则 expand 层逻辑会出错
+            # c2 必须等于 c1[level]，否则 expand 层逻辑会出错
             if c2 != c1[level]:
                 print(f"[WARNING] ASFF level={level}: yaml c2={c2} != c1[level]={c1[level]}, 强制对齐")
                 c2 = c1[level]
