@@ -693,7 +693,7 @@ class MFE(nn.Module):
             f.write(f"c1={c1}, c2={c2}, n={n}, shortcut={shortcut}, g={g}, e={e}\n")
         super().__init__()
        
-        print(f"[MFE INIT] c1={c1}, c2={c2}, n={n}, shortcut={shortcut}")
+        # print(f"[MFE INIT] c1={c1}, c2={c2}, n={n}, shortcut={shortcut}")
         
         self.n = int(n)
         self.c = int(c2 * e)  # hidden channels
@@ -908,16 +908,17 @@ class ASFF(nn.Module):
         # 验证输入特征图的通道数
         actual_channels = [xx.shape[1] for xx in x]
         
+        """
         print(f"[ASFF FORWARD Debug] 模块level={self.level}")
         print(f"  预期输入通道: {self.dim}")
         print(f"  实际输入通道: {actual_channels}")
         print(f"  实际输入空间尺寸: {[xx.shape[2:] for xx in x]}")
-    
+
         # 检查通道数是否匹配
         for i, (expected, actual) in enumerate(zip(self.dim, actual_channels)):
             if expected != actual:
                 print(f"  [WARNING] 输入{i}: 期望通道数={expected}, 实际通道数={actual}")
-    
+        
         # 检查对齐层的权重形状
         for i, layer in enumerate(self.align_layers):
             # 获取Conv层的权重
@@ -925,17 +926,19 @@ class ASFF(nn.Module):
             if hasattr(conv_layer, 'weight'):
                 weight_shape = conv_layer.weight.shape
                 print(f"  对齐层{i}权重形状: {weight_shape}, 期望输入: {weight_shape[1]}通道, 输出: {weight_shape[0]}通道")   
+        """
+
         # 获取目标层级特征图的空间尺寸
         target_size = x[self.level].shape[2:]    
 
         # 统一空间尺度与通道
         aligned_x = []
         for i, layer in enumerate(self.align_layers):
-            print(f"  处理输入{i}: 原始形状={x[i].shape}")
+            # print(f"  处理输入{i}: 原始形状={x[i].shape}")
             feat = layer(x[i])
-            print(f"    对齐后形状={feat.shape}")
+            # print(f"    对齐后形状={feat.shape}")
             if feat.shape[2:] != target_size:
-                print(f"    上采样/下采样到: {target_size}")
+                # print(f"    上采样/下采样到: {target_size}")
                 feat = F.interpolate(feat, size=target_size, mode='bilinear', align_corners=False)
             aligned_x.append(feat)
 
@@ -947,9 +950,9 @@ class ASFF(nn.Module):
 
         # 自适应加权求和
         fused = (aligned_x[0] * weights[:, 0:1, :, :] + aligned_x[1] * weights[:, 1:2, :, :] + aligned_x[2] * weights[:, 2:3, :, :])
-        print(f"  融合后形状: {fused.shape}")
+        # print(f"  融合后形状: {fused.shape}")
 
         # 扩展通道数，得到最终输出
         output = self.expand(fused)
-        print(f"  扩展后输出形状: {output.shape}")
+        # print(f"  扩展后输出形状: {output.shape}")
         return self.expand(fused)
