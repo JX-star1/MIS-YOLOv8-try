@@ -842,7 +842,8 @@ class ASFF(nn.Module):
         # 关键修改1：将self.inter_dim保存为局部变量，确保在循环中不变
         target_dim = self.inter_dim
         
-        # 关键修改2：更详细的调试信息
+        """
+        # 关键修改2:更详细的调试信息
         print(f"[ASFF INIT Debug] 输入通道列表 dim={c1}")
         print(f"[ASFF INIT Debug] 目标层级 level={level}")
         print(f"[ASFF INIT Debug] 中间维度/目标通道 inter_dim={self.inter_dim}, target_dim={target_dim}")
@@ -851,8 +852,9 @@ class ASFF(nn.Module):
         if c2 != target_dim:
             print(f"[ASFF WARNING] 输出通道c2({c2})与目标通道target_dim({target_dim})不匹配！")
             print(f"               ASFF内部将使用target_dim={target_dim}作为对齐层通道数")
-            # 如果需要，这里可以强制将c2设为target_dim，但会改变模块的对外输出通道
+            # 如果需要,这里可以强制将c2设为target_dim,但会改变模块的对外输出通道
             # c2 = target_dim
+        """
 
         compress_c = 8  # channel for attention weights
 
@@ -862,16 +864,16 @@ class ASFF(nn.Module):
             # 关键修改3：使用局部变量target_dim，并打印每个对齐层的构建信息
             if i == level:
                 # 如果是目标层级本身，仅用1x1卷积调整通道数
-                print(f"  对齐层{i} (i==level): Conv({channel}, {target_dim}, 1, 1)")
+                # print(f"  对齐层{i} (i==level): Conv({channel}, {target_dim}, 1, 1)")
                 self.align_layers.append(Conv(channel, target_dim, 1, 1))
             elif i < level:
                 # 如果输入层级高于目标层级（分辨率更高），使用步长>1的卷积进行下采样
                 stride = 2 ** (level - i)
-                print(f"  对齐层{i} (i<level): Conv({channel}, {target_dim}, 3, {stride})")
+                # print(f"  对齐层{i} (i<level): Conv({channel}, {target_dim}, 3, {stride})")
                 self.align_layers.append(Conv(channel, target_dim, 3, stride))
             else:
                 # 如果输入层级低于目标层级（分辨率更低），先用1x1卷积调整通道，后续会进行上采样
-                print(f"  对齐层{i} (i>level): Conv({channel}, {target_dim}, 1, 1)")
+                # print(f"  对齐层{i} (i>level): Conv({channel}, {target_dim}, 1, 1)")
                 self.align_layers.append(Conv(channel, target_dim, 1, 1))    
 
         # 2. 权重预测层
@@ -883,10 +885,10 @@ class ASFF(nn.Module):
         # 3. 最终的特征扩展层
         # 如果c2与target_dim不同，则需要调整通道数；否则使用恒等映射
         if c2 != target_dim:
-            print(f"[ASFF INIT] 扩展层: Conv({target_dim}, {c2}, 3, 1)")
+            # print(f"[ASFF INIT] 扩展层: Conv({target_dim}, {c2}, 3, 1)")
             self.expand = Conv(target_dim, c2, 3, 1)
         else:
-            print(f"[ASFF INIT] 扩展层: 恒等映射 (target_dim=c2={target_dim})")
+            # print(f"[ASFF INIT] 扩展层: 恒等映射 (target_dim=c2={target_dim})")
             self.expand = nn.Identity()
         
         # 记录实际输出通道数
@@ -901,10 +903,11 @@ class ASFF(nn.Module):
         """
         # 添加输入验证
         if len(x) != 3:
-            raise ValueError(f"ASFF模块需要3个输入特征图，但得到了{len(x)}个")
+            raise ValueError(f"ASFF模块需要3个输入特征图, 但得到了{len(x)}个")
     
         # 验证输入特征图的通道数
         actual_channels = [xx.shape[1] for xx in x]
+        
         print(f"[ASFF FORWARD Debug] 模块level={self.level}")
         print(f"  预期输入通道: {self.dim}")
         print(f"  实际输入通道: {actual_channels}")
