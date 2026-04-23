@@ -80,6 +80,7 @@ from .transformer import (
     TransformerEncoderLayer,
     TransformerLayer,
 )
+from .mdsf_module import MDSF4
 
 __all__ = (
     "Conv",

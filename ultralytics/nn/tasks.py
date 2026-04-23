@@ -4,6 +4,7 @@ import contextlib
 from copy import deepcopy
 from pathlib import Path
 from ultralytics.nn.modules.block import ASFF
+from ultralytics.nn.modules import MDSF4
 
 import torch
 import torch.nn as nn
@@ -22,6 +23,7 @@ from ultralytics.nn.modules import (
     Bottleneck,
     BottleneckCSP,
     C2f,
+    MDSF4,
     C2fAttn,
     C3Ghost,
     C3x,
