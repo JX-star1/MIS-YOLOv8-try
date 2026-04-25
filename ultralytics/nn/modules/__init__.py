@@ -80,6 +80,7 @@ from .transformer import (
     TransformerEncoderLayer,
     TransformerLayer,
 )
+from .dff_module import DFF
 from .mdsf_module import MDSF4
 
 __all__ = (
@@ -146,5 +147,6 @@ __all__ = (
     "CBLinear",
     "Silence",
     "ASFF", #add2
+    "DFF",
 )
 from .block import *
