@@ -82,7 +82,6 @@ from .transformer import (
 )
 from .dff_module import DFF
 from .mdsf_module import MDSF4
-from .pa_module import PAFeature
 
 __all__ = (
     "Conv",
@@ -148,7 +147,6 @@ __all__ = (
     "CBLinear",
     "Silence",
     "ASFF", #add2
-    "DFF", #add
-    "PAFeature", #add
+    "DFF",
 )
 from .block import *

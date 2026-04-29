@@ -25,6 +25,7 @@ from ultralytics.nn.modules import (
     C2f,
     DFF,
     MDSF4,
+    PAFeature, #add
     C2fAttn,
     C3Ghost,
     C3x,
@@ -993,6 +994,14 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             args = [c1, c2, level]
             # ✅ 确保定义 ch_out
             ch_out = c2
+        
+        elif m is PAFeature:
+           # f is a list of feature indices, e.g. [18, 21, 24, 27]
+           # args[0] is target index, e.g. 0 for P2, 1 for P3, 2 for P4, 3 for P5
+            ch_in = [ch[x] for x in f]
+            target = args[0]
+            c2 = ch_in[target]
+            args = [ch_in, target]
             
         elif m in {Detect, WorldDetect, Segment, Pose, OBB, ImagePoolingAttn}:
             args.append([ch[x] for x in f])
