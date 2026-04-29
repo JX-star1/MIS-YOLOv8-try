@@ -1,152 +1,68 @@
-# Ultralytics YOLO 🚀, AGPL-3.0 license
-"""
-Ultralytics modules.
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 
-Example:
-    Visualize a module with Netron.
-    ```python
-    from ultralytics.nn.modules import *
-    import torch
-    import os
+from .conv import Conv
 
-    x = torch.ones(1, 128, 40, 40)
-    m = Conv(128, 128)
-    f = f'{m._get_name()}.onnx'
-    torch.onnx.export(m, x, f)
-    os.system(f'onnxsim {f} {f} && open {f}')
-    ```
-"""
 
-from .block import (
-    C1,
-    C2,
-    C3,
-    MFE, #add1
-    C3TR,
-    DFL,
-    SPP,
-    SPPELAN,
-    SPPF,
-    ADown,
-    BNContrastiveHead,
-    Bottleneck,
-    BottleneckCSP,
-    C2f,
-    C2fAttn,
-    C3Ghost,
-    C3x,
-    CBFuse,
-    CBLinear,
-    ContrastiveHead,
-    GhostBottleneck,
-    HGBlock,
-    HGStem,
-    ImagePoolingAttn,
-    Proto,
-    RepC3,
-    RepNCSPELAN4,
-    ResNetLayer,
-    Silence,
-    ASFF, #add2
-    SPD,
-    SAC,
-    SDA, #add3
-)
-from .conv import (
-    CBAM,
-    ChannelAttention,
-    Concat,
-    Conv,
-    Conv2,
-    ConvTranspose,
-    DWConv,
-    DWConvTranspose2d,
-    Focus,
-    GhostConv,
-    LightConv,
-    RepConv,
-    SpatialAttention,
-)
-from .head import OBB, Classify, Detect, Pose, RTDETRDecoder, Segment, WorldDetect
-from .transformer import (
-    AIFI,
-    MLP,
-    DeformableTransformerDecoder,
-    DeformableTransformerDecoderLayer,
-    LayerNorm2d,
-    MLPBlock,
-    MSDeformAttn,
-    TransformerBlock,
-    TransformerEncoderLayer,
-    TransformerLayer,
-)
-from .dff_module import DFF
-from .mdsf_module import MDSF4
+class PAFeature(nn.Module):
+    """
+    PAFeature: Pathway Aggregation before Detect.
 
-__all__ = (
-    "Conv",
-    "Conv2",
-    "LightConv",
-    "RepConv",
-    "DWConv",
-    "DWConvTranspose2d",
-    "ConvTranspose",
-    "Focus",
-    "GhostConv",
-    "ChannelAttention",
-    "SpatialAttention",
-    "CBAM",
-    "Concat",
-    "TransformerLayer",
-    "TransformerBlock",
-    "MLPBlock",
-    "LayerNorm2d",
-    "DFL",
-    "HGBlock",
-    "HGStem",
-    "SPP",
-    "SPPF",
-    "C1",
-    "C2",
-    "C3",
-    "MFE", #add1
-    "SPD", 
-    "SAC",
-    "SDA", #add3
-    "C2f",
-    "C2fAttn",
-    "C3x",
-    "C3TR",
-    "C3Ghost",
-    "GhostBottleneck",
-    "Bottleneck",
-    "BottleneckCSP",
-    "Proto",
-    "Detect",
-    "Segment",
-    "Pose",
-    "Classify",
-    "TransformerEncoderLayer",
-    "RepC3",
-    "RTDETRDecoder",
-    "AIFI",
-    "DeformableTransformerDecoder",
-    "DeformableTransformerDecoderLayer",
-    "MSDeformAttn",
-    "MLP",
-    "ResNetLayer",
-    "OBB",
-    "WorldDetect",
-    "ImagePoolingAttn",
-    "ContrastiveHead",
-    "BNContrastiveHead",
-    "RepNCSPELAN4",
-    "ADown",
-    "SPPELAN",
-    "CBFuse",
-    "CBLinear",
-    "Silence",
-    "ASFF", #add2
-    "DFF",
-)
-from .block import *
+    Input:
+        x = [P2, P3, P4]
+
+    Output:
+        one fused feature map for target level:
+        target=0 -> PA-P2
+        target=1 -> PA-P3
+        target=2 -> PA-P4
+    """
+
+    def __init__(self, ch, target=0):
+        super().__init__()
+
+        self.ch = ch
+        self.target = target
+        self.nl = len(ch)
+        self.c2 = ch[target]
+
+        # Align channels of all input levels to target channel.
+        self.proj = nn.ModuleList(
+            Conv(c, self.c2, 1, 1) if c != self.c2 else nn.Identity()
+            for c in ch
+        )
+
+        # Learn spatial pathway weights.
+        # Input: concat(P2, P3, P4) after resize and channel alignment.
+        # Output: [B, 3, H, W], then softmax over pathway dimension.
+        self.weight = nn.Sequential(
+            Conv(self.c2 * self.nl, self.c2, 1, 1),
+            nn.Conv2d(self.c2, self.nl, kernel_size=1, stride=1, padding=0)
+        )
+
+        self.out = Conv(self.c2, self.c2, 3, 1)
+
+    def forward(self, x):
+        assert isinstance(x, (list, tuple)), "PAFeature expects a list of feature maps."
+
+        target_size = x[self.target].shape[-2:]
+        feats = []
+
+        for i, xi in enumerate(x):
+            xi = self.proj[i](xi)
+
+            if xi.shape[-2:] != target_size:
+                xi = F.interpolate(xi, size=target_size, mode="nearest")
+
+            feats.append(xi)
+
+        # Spatial weights for each pathway.
+        w = self.weight(torch.cat(feats, dim=1))
+        w = torch.softmax(w, dim=1)
+
+        y = 0
+        for i, feat in enumerate(feats):
+            y = y + feat * w[:, i:i + 1]
+
+        return self.out(y)
