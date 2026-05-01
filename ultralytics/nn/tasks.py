@@ -927,12 +927,10 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
                 args.insert(2, n)  # number of repeats
                 n = 1
             
-            # ✅ 修复：确保定义 ch_out
             ch_out = c2
             
         elif m is AIFI:
             args = [ch[f], *args]
-            # ✅ 修复：确保定义 ch_out
             ch_out = ch[f]
             
         elif m in {HGStem, HGBlock}:
@@ -941,22 +939,18 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             if m is HGBlock:
                 args.insert(4, n)  # number of repeats
                 n = 1
-            # ✅ 修复：确保定义 ch_out
             ch_out = c2
             
         elif m is ResNetLayer:
             c2 = args[1] if args[3] else args[1] * 4
-            # ✅ 修复：确保定义 ch_out
             ch_out = c2
             
         elif m is nn.BatchNorm2d:
             args = [ch[f]]
-            # ✅ 修复：确保定义 ch_out（BatchNorm 不改变通道数）
             ch_out = ch[f]
             
         elif m is Concat:
             c2 = sum(ch[x] for x in f)
-            # ✅ 修复：确保定义 ch_out
             ch_out = c2
             
         elif m is MFE:
@@ -969,7 +963,6 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             # 【关键点】在这里，我们将参数重新打包成一个列表，顺序严格对应 MFE 的 __init__
             args = [c1, c2, int(n), bool(shortcut)]
             n = 1
-            # ✅ 确保定义 ch_out
             ch_out = c2
             
         elif m is SDA:
@@ -978,7 +971,6 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             if c2 != nc:  # 改为 nc 而不是 no
                 c2 = make_divisible(c2 * width, 8)  # 改为 width 而不是 gw
             args = [c1, c2, scale, k, r]
-            # ✅ 确保定义 ch_out
             ch_out = c2
             
         elif m is ASFF:
@@ -992,7 +984,6 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
                 print(f"[WARNING] ASFF level={level}: yaml c2={c2} != c1[level]={c1[level]}, 强制对齐")
                 c2 = c1[level]
             args = [c1, c2, level]
-            # ✅ 确保定义 ch_out
             ch_out = c2
         
         elif m is PAFeature:
@@ -1007,7 +998,6 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             args.append([ch[x] for x in f])
             if m is Segment:
                 args[2] = make_divisible(min(args[2], max_channels) * width, 8)
-            # ✅ 修复：为 Detect 等模块定义 ch_out
             # 对于 head 的最后模块，通常输出通道数由输入决定
             if isinstance(f, list):
                 ch_out = ch[f[-1]]
@@ -1016,24 +1006,20 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             
         elif m is RTDETRDecoder:  # special case, channels arg must be passed in index 1
             args.insert(1, [ch[x] for x in f])
-            # ✅ 修复：确保定义 ch_out
             ch_out = ch[f[-1]] if isinstance(f, list) else ch[f]
             
         elif m is CBLinear:
             c2 = args[0]
             c1 = ch[f]
             args = [c1, c2, *args[1:]]
-            # ✅ 修复：确保定义 ch_out
             ch_out = c2
             
         elif m is CBFuse:
             c2 = ch[f[-1]]
-            # ✅ 修复：确保定义 ch_out
             ch_out = c2
             
         else:
             c2 = ch[f]
-            # ✅ 修复：确保定义 ch_out（作为最后的 fallback）
             ch_out = c2
 
 
