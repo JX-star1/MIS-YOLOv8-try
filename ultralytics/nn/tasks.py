@@ -993,7 +993,7 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             args = [ch_in, target]
             ch_out = c2
 
-            print(f"[DEBUG PAFeature] i={i}, f={f}, ch_in={ch_in}, target={target}, c2={c2}")
+            # print(f"[DEBUG PAFeature] i={i}, f={f}, ch_in={ch_in}, target={target}, c2={c2}")
             
         elif m in {Detect, WorldDetect, Segment, Pose, OBB, ImagePoolingAttn}:
             args.append([ch[x] for x in f])
@@ -1036,7 +1036,7 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             ch = []
         
         # 🔍 调试输出（可选）
-        print(f"layer {i}: {m.__name__ if hasattr(m, '__name__') else m} ch_out={ch_out}")
+        # print(f"layer {i}: {m.__name__ if hasattr(m, '__name__') else m} ch_out={ch_out}")
         
         # ✅ 修复：使用 ch_out 而不是 c2
         ch.append(ch_out)
