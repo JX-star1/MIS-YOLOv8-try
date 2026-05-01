@@ -985,14 +985,14 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
                 c2 = c1[level]
             args = [c1, c2, level]
             ch_out = c2
-        
-        elif m is PAFeature:
-           # f is a list of feature indices, e.g. [18, 21, 24, 27]
-           # args[0] is target index, e.g. 0 for P2, 1 for P3, 2 for P4, 3 for P5
+
+        elif getattr(m, "__name__", "") == "PAFeature":
             ch_in = [ch[x] for x in f]
-            target = args[0]
+            target = int(args[0]) if len(args) else 0
             c2 = ch_in[target]
             args = [ch_in, target]
+
+            print(f"[DEBUG PAFeature] i={i}, f={f}, ch_in={ch_in}, target={target}, c2={c2}")
             
         elif m in {Detect, WorldDetect, Segment, Pose, OBB, ImagePoolingAttn}:
             args.append([ch[x] for x in f])
