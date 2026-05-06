@@ -29,6 +29,7 @@ class PGDHeatGate(nn.Module):
         )
 
         self.last_heat = None
+        self.save_heat = False
 
     def forward(self, x):
         x = self.proj(x)
@@ -148,4 +149,4 @@ def pgd_heatmap_loss(model, batch, lambda_heat=0.05):
     if not losses:
         return None
 
-    return sum(losses) * lambda_heat
+    return torch.stack(losses).sum() * lambda_heat

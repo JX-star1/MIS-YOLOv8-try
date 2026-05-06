@@ -354,6 +354,45 @@ class DetectionModel(BaseModel):
         y[-1] = y[-1][..., i:]  # small
         return y
 
+    def _set_pgd_heat_collection(self, enabled=False):
+        """Enable or disable PGD heat collection."""
+        for m in self.modules():
+            if isinstance(m, PGDHeatGate):
+                m.save_heat = enabled
+                if not enabled:
+                    m.last_heat = None
+
+    def loss(self, batch, preds=None):
+        """
+        Compute detection loss and PGD auxiliary heatmap loss.
+        """
+        if not hasattr(self, "criterion"):
+            self.criterion = self.init_criterion()
+
+        use_pgd = any(isinstance(m, PGDHeatGate) for m in self.modules())
+
+        if use_pgd:
+            self._set_pgd_heat_collection(True)
+
+        try:
+            preds = self.forward(batch["img"]) if preds is None else preds
+
+            det_loss, loss_items = self.criterion(preds, batch)
+
+            if self.training and use_pgd:
+                aux_loss = pgd_heatmap_loss(self, batch)
+
+                if aux_loss is not None:
+                    # v8DetectionLoss 的 total loss 通常按 batch size 放大
+                    # 这里也乘 batch size，避免辅助 loss 随 batch size 改变相对权重
+                    det_loss = det_loss + aux_loss * batch["img"].shape[0]
+
+            return det_loss, loss_items
+
+        finally:
+            if use_pgd:
+                self._set_pgd_heat_collection(False)
+
     def init_criterion(self):
         """Initialize the loss criterion for the DetectionModel."""
         return v8DetectionLoss(self)
