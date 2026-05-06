@@ -83,6 +83,7 @@ from .transformer import (
 from .dff_module import DFF
 from .mdsf_module import MDSF4
 from .pa_module import PAFeature
+from .pgd import PGDHeatGate, pgd_heatmap_loss
 
 __all__ = (
     "Conv",
