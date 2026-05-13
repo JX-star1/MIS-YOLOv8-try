@@ -84,6 +84,7 @@ from .dff_module import DFF
 from .mdsf_module import MDSF4
 from .pa_module import PAFeature
 from .pgd_module import PGDHeatGate, pgd_heatmap_loss
+from .digm_module import DIGM, PFIM, PGDP
 
 __all__ = (
     "Conv",

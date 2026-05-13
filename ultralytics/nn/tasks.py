@@ -28,6 +28,7 @@ from ultralytics.nn.modules import (
     PAFeature, #add
     PGDHeatGate, #add
     pgd_heatmap_loss, #add
+    DIGM, #add
     C2fAttn,
     C3Ghost,
     C3x,
@@ -1036,7 +1037,22 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             ch_out = c2
 
             # print(f"[DEBUG PAFeature] i={i}, f={f}, ch_in={ch_in}, target={target}, c2={c2}")
-            
+
+        elif m is DIGM:
+            # DIGM 输入必须是 [P2, P3, P4]
+            # YAML 示例：- [[18, 21, 24], 1, DIGM, []]
+            if not isinstance(f, list) or len(f) != 3:
+                raise ValueError(f"DIGM expects f=[P2, P3, P4], but got f={f}")
+
+            c_p2, c_p3, c_p4 = [ch[x] for x in f]
+
+            # DIGM.__init__(c2, c3, c4)
+            args = [c_p2, c_p3, c_p4]
+
+            # DIGM 只输出增强后的 P2'，所以输出通道 = P2 通道
+            c2 = c_p2
+            ch_out = c_p2
+
         elif m in {Detect, WorldDetect, Segment, Pose, OBB, ImagePoolingAttn}:
             args.append([ch[x] for x in f])
             if m is Segment:
