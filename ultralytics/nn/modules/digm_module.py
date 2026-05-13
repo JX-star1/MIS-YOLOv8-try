@@ -129,8 +129,9 @@ class DIGM(nn.Module):
         # 残差门控，初始化为 0，训练初期等价于原 P2
         self.gamma = nn.Parameter(torch.zeros(1))
 
-        # 供 loss.py 读取辅助输出
-        self.aux_outputs = {}
+        # 默认不收集 aux，避免初始化 dummy forward 后模型 deepcopy 报错
+        self.save_aux = False
+        self.aux_outputs = None
 
     def forward(self, x):
         p2, p3, p4 = x
@@ -145,15 +146,18 @@ class DIGM(nn.Module):
         p2_gauss = p2 * (1.0 + mpd2)
 
         p2_enh = self.fuse(p2_info + p2_gauss)
-
         p2_out = p2 + self.gamma * p2_enh
 
-        self.aux_outputs = {
-            "sigma": sigma,
-            "mpd2": mpd2,
-            "mpd3": mpd3,
-            "mpd4": mpd4,
-            "lie_loss": lie_loss,
-        }
+        # 只有训练 loss 显式打开 save_aux 时才保存带梯度的辅助输出
+        if self.save_aux:
+            self.aux_outputs = {
+                "sigma": sigma,
+                "mpd2": mpd2,
+                "mpd3": mpd3,
+                "mpd4": mpd4,
+                "lie_loss": lie_loss,
+            }
+        else:
+            self.aux_outputs = None
 
         return p2_out

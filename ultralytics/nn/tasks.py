@@ -363,6 +363,14 @@ class DetectionModel(BaseModel):
                 if not enabled:
                     m.last_heat = None
 
+    def _set_digm_collection(self, enabled=False):
+        """Enable or disable DIGM auxiliary output collection."""
+        for m in self.modules():
+            if isinstance(m, DIGM):
+                m.save_aux = enabled
+                if not enabled:
+                    m.aux_outputs = None
+
     def loss(self, batch, preds=None):
         """
         Compute detection loss and PGD auxiliary heatmap loss.
