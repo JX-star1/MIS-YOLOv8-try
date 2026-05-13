@@ -29,6 +29,7 @@ from ultralytics.nn.modules import (
     PGDHeatGate, #add
     pgd_heatmap_loss, #add
     DIGM, #add
+    SPAFeature, #add
     C2fAttn,
     C3Ghost,
     C3x,
@@ -1060,6 +1061,31 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             # DIGM 只输出增强后的 P2'，所以输出通道 = P2 通道
             c2 = c_p2
             ch_out = c_p2
+        
+        elif m is SPAFeature:
+            # SPAFeature 输入必须是 [P2, P3, P4, P5ctx]
+            # YAML 示例：- [[18, 21, 24, 9], 1, SPAFeature, [0]]
+            if not isinstance(f, list) or len(f) != 4:
+                raise ValueError(f"SPAFeature expects f=[P2, P3, P4, P5ctx], but got f={f}")
+
+            if len(args) < 1:
+                raise ValueError("SPAFeature requires level argument: 0 for Y2, 1 for Y3, 2 for Y4")
+
+            level = int(args[0])
+            if level not in (0, 1, 2):
+                raise ValueError(f"SPAFeature level must be 0, 1, or 2, but got {level}")
+
+            c_p2, c_p3, c_p4, c_p5 = [ch[x] for x in f]
+
+            # SPAFeature.__init__(c2, c3, c4, c5, level)
+            args = [c_p2, c_p3, c_p4, c_p5, level]
+
+            # level=0 输出 Y2，通道=P2
+            # level=1 输出 Y3，通道=P3
+            # level=2 输出 Y4，通道=P4
+            c_outs = [c_p2, c_p3, c_p4]
+            c2 = c_outs[level]
+            ch_out = c2
 
         elif m in {Detect, WorldDetect, Segment, Pose, OBB, ImagePoolingAttn}:
             args.append([ch[x] for x in f])
