@@ -29,6 +29,7 @@ from ultralytics.nn.modules import (
     PGDHeatGate, #add
     pgd_heatmap_loss, #add
     DIGM, #add
+    digm_auxiliary_loss,
     SPAFeature, #add
     C2fAttn,
     C3Ghost,
@@ -372,29 +373,50 @@ class DetectionModel(BaseModel):
                 if not enabled:
                     m.aux_outputs = None
 
+    def _set_digm_collection(self, enabled=False):
+        """Enable or disable DIGM auxiliary output collection."""
+        for m in self.modules():
+            if isinstance(m, DIGM):
+                m.save_aux = enabled
+                if not enabled:
+                    m.aux_outputs = None
+
     def loss(self, batch, preds=None):
         """
-        Compute detection loss and PGD auxiliary heatmap loss.
+        Compute detection loss, PGD auxiliary heatmap loss, and DIGM auxiliary loss.
         """
         if not hasattr(self, "criterion"):
             self.criterion = self.init_criterion()
 
         use_pgd = any(isinstance(m, PGDHeatGate) for m in self.modules())
+        use_digm = any(isinstance(m, DIGM) for m in self.modules())
 
         if use_pgd:
             self._set_pgd_heat_collection(True)
 
+        # 只在训练阶段打开 DIGM aux 收集，避免 val / model init / deepcopy 问题
+        if self.training and use_digm:
+            self._set_digm_collection(True)
+
         try:
             preds = self.forward(batch["img"]) if preds is None else preds
-
             det_loss, loss_items = self.criterion(preds, batch)
 
             if self.training and use_pgd:
                 aux_loss = pgd_heatmap_loss(self, batch)
+                if aux_loss is not None:
+                    det_loss = det_loss + aux_loss * batch["img"].shape[0]
 
+            if self.training and use_digm:
+                aux_loss = digm_auxiliary_loss(
+                    self,
+                    batch,
+                    lambda_ie=0.001,
+                    lambda_gauss=0.25,
+                    supervise_all=False,
+                )
                 if aux_loss is not None:
                     # v8DetectionLoss 的 total loss 通常按 batch size 放大
-                    # 这里也乘 batch size，避免辅助 loss 随 batch size 改变相对权重
                     det_loss = det_loss + aux_loss * batch["img"].shape[0]
 
             return det_loss, loss_items
@@ -402,6 +424,9 @@ class DetectionModel(BaseModel):
         finally:
             if use_pgd:
                 self._set_pgd_heat_collection(False)
+
+            if use_digm:
+                self._set_digm_collection(False)
 
     def init_criterion(self):
         """Initialize the loss criterion for the DetectionModel."""
