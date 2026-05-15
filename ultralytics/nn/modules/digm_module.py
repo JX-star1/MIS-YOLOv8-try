@@ -127,7 +127,7 @@ class DIGM(nn.Module):
         self.fuse = Conv(c2, c2, 1, 1)
 
         # 残差门控
-        self.gamma = nn.Parameter(torch.zeros(0.1))
+        self.gamma = nn.Parameter(torch.tensor(0.1, dtype=torch.float32))
 
         # 默认不收集 aux，避免初始化 dummy forward 后模型 deepcopy 报错
         self.save_aux = False
