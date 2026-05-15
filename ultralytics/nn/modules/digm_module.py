@@ -161,152 +161,152 @@ class DIGM(nn.Module):
             self.aux_outputs = None
 
         return p2_out
-    
-    @torch.no_grad()
-    def build_density_gaussian_map(batch, pred_map, beta=0.2, radius=16.0):
-        """
-        根据 YOLOv8 batch 标注生成密度感知高斯 GT 图。
 
-        Args:
-            batch: YOLOv8 training batch.
-                batch["bboxes"] 通常是 normalized xywh.
-                batch["batch_idx"] 表示每个框属于 batch 中第几张图.
-            pred_map: [B, 1, H, W], 例如 mpd2.
-            beta: 密度调节系数.
-            radius: 在 P2 特征图尺度下统计邻居的半径.
+@torch.no_grad()
+def build_density_gaussian_map(batch, pred_map, beta=0.2, radius=16.0):
+    """
+    根据 YOLOv8 batch 标注生成密度感知高斯 GT 图。
 
-        Returns:
-            mgt: [B, 1, H, W]
-        """
-        device = pred_map.device
-        b, _, h, w = pred_map.shape
+    Args:
+        batch: YOLOv8 training batch.
+               batch["bboxes"] 通常是 normalized xywh.
+               batch["batch_idx"] 表示每个框属于 batch 中第几张图.
+        pred_map: [B, 1, H, W], 例如 mpd2.
+        beta: 密度调节系数.
+        radius: 在 P2 特征图尺度下统计邻居的半径.
 
-        mgt = torch.zeros((b, 1, h, w), device=device)
+    Returns:
+        mgt: [B, 1, H, W]
+    """
+    device = pred_map.device
+    b, _, h, w = pred_map.shape
 
-        if "bboxes" not in batch or batch["bboxes"].numel() == 0:
-            return mgt
+    mgt = torch.zeros((b, 1, h, w), device=device)
 
-        boxes = batch["bboxes"].to(device)
-        batch_idx = batch["batch_idx"].to(device).long().view(-1)
+    if "bboxes" not in batch or batch["bboxes"].numel() == 0:
+        return mgt
 
-        # YOLOv8 bboxes: normalized xywh
-        cx = boxes[:, 0] * w
-        cy = boxes[:, 1] * h
-        bw = boxes[:, 2] * w
-        bh = boxes[:, 3] * h
+    boxes = batch["bboxes"].to(device)
+    batch_idx = batch["batch_idx"].to(device).long().view(-1)
 
-        img_h, img_w = batch["img"].shape[-2:]
-        stride_x = img_w / float(w)
-        stride_y = img_h / float(h)
+    # YOLOv8 bboxes: normalized xywh
+    cx = boxes[:, 0] * w
+    cy = boxes[:, 1] * h
+    bw = boxes[:, 2] * w
+    bh = boxes[:, 3] * h
 
-        yy, xx = torch.meshgrid(
-            torch.arange(h, device=device),
-            torch.arange(w, device=device),
-            indexing="ij"
-        )
-        xx = xx.float()
-        yy = yy.float()
+    img_h, img_w = batch["img"].shape[-2:]
+    stride_x = img_w / float(w)
+    stride_y = img_h / float(h)
 
-        for img_i in range(b):
-            inds = torch.where(batch_idx == img_i)[0]
-            if inds.numel() == 0:
-                continue
+    yy, xx = torch.meshgrid(
+        torch.arange(h, device=device),
+        torch.arange(w, device=device),
+        indexing="ij"
+    )
+    xx = xx.float()
+    yy = yy.float()
 
-            centers = torch.stack([cx[inds], cy[inds]], dim=1)
+    for img_i in range(b):
+        inds = torch.where(batch_idx == img_i)[0]
+        if inds.numel() == 0:
+            continue
 
-            for local_j, idx in enumerate(inds):
-                x0 = cx[idx]
-                y0 = cy[idx]
-                ww = bw[idx].clamp(min=1.0)
-                hh = bh[idx].clamp(min=1.0)
+        centers = torch.stack([cx[inds], cy[inds]], dim=1)
 
-                # 换回原图尺度估计目标大小
-                obj_w = ww * stride_x
-                obj_h = hh * stride_y
-                obj_size = torch.sqrt(obj_w * obj_h)
+        for local_j, idx in enumerate(inds):
+            x0 = cx[idx]
+            y0 = cy[idx]
+            ww = bw[idx].clamp(min=1.0)
+            hh = bh[idx].clamp(min=1.0)
 
-                # 参考 tiny object 划分：very tiny / tiny / small / general
-                if obj_size < 8:
-                    alpha = 4.0
-                elif obj_size < 16:
-                    alpha = 6.0
-                elif obj_size < 32:
-                    alpha = 8.0
-                else:
-                    alpha = 10.0
+            # 换回原图尺度估计目标大小
+            obj_w = ww * stride_x
+            obj_h = hh * stride_y
+            obj_size = torch.sqrt(obj_w * obj_h)
 
-                # 密度感知：邻居越多，高斯越尖锐，减少密集目标响应粘连
-                dist = torch.sqrt(((centers - centers[local_j]) ** 2).sum(dim=1))
-                n_neighbor = (dist < radius).sum().float() - 1.0
-                density = 1.0 + beta * torch.log1p(n_neighbor.clamp(min=0.0))
+            # 参考 tiny object 划分：very tiny / tiny / small / general
+            if obj_size < 8:
+                alpha = 4.0
+            elif obj_size < 16:
+                alpha = 6.0
+            elif obj_size < 32:
+                alpha = 8.0
+            else:
+                alpha = 10.0
 
-                alpha = alpha * density
+            # 密度感知：邻居越多，高斯越尖锐，减少密集目标响应粘连
+            dist = torch.sqrt(((centers - centers[local_j]) ** 2).sum(dim=1))
+            n_neighbor = (dist < radius).sum().float() - 1.0
+            density = 1.0 + beta * torch.log1p(n_neighbor.clamp(min=0.0))
 
-                sx = (ww / alpha).clamp(min=0.5)
-                sy = (hh / alpha).clamp(min=0.5)
+            alpha = alpha * density
 
-                gaussian = torch.exp(
-                    -0.5 * (((xx - x0) / sx) ** 2 + ((yy - y0) / sy) ** 2)
-                )
+            sx = (ww / alpha).clamp(min=0.5)
+            sy = (hh / alpha).clamp(min=0.5)
 
-                # 用 maximum 避免密集目标简单相加导致过强响应
-                mgt[img_i, 0] = torch.maximum(mgt[img_i, 0], gaussian)
+            gaussian = torch.exp(
+                -0.5 * (((xx - x0) / sx) ** 2 + ((yy - y0) / sy) ** 2)
+            )
 
-        return mgt.clamp(0.0, 1.0)
+            # 用 maximum 避免密集目标简单相加导致过强响应
+            mgt[img_i, 0] = torch.maximum(mgt[img_i, 0], gaussian)
 
-
-    def weighted_gaussian_mse(pred, target, fg_thr=0.05):
-        """
-        前景区域高权重，背景区域低权重。
-        """
-        weight = torch.where(
-            target > fg_thr,
-            torch.tensor(10.0, device=target.device, dtype=target.dtype),
-            torch.tensor(0.1, device=target.device, dtype=target.dtype),
-        )
-        return (weight * (pred - target) ** 2).mean()
+    return mgt.clamp(0.0, 1.0)
 
 
-    def digm_auxiliary_loss(model, batch, lambda_ie=0.001, lambda_gauss=0.25, supervise_all=False):
-        """
-        DIGM 辅助损失:
-            L_aux = lambda_ie * L_IE + lambda_gauss * L_gauss
+def weighted_gaussian_mse(pred, target, fg_thr=0.05):
+    """
+    前景区域高权重，背景区域低权重。
+    """
+    weight = torch.where(
+        target > fg_thr,
+        torch.tensor(10.0, device=target.device, dtype=target.dtype),
+        torch.tensor(0.1, device=target.device, dtype=target.dtype),
+    )
+    return (weight * (pred - target) ** 2).mean()
 
-        supervise_all=False:
-            只监督 mpd2，第一版更稳。
 
-        supervise_all=True:
-            同时监督 mpd2/mpd3/mpd4。
-        """
-        digm_modules = [m for m in model.modules() if isinstance(m, DIGM)]
-        if len(digm_modules) == 0:
-            return None
+def digm_auxiliary_loss(model, batch, lambda_ie=0.001, lambda_gauss=0.25, supervise_all=False):
+    """
+    DIGM 辅助损失:
+        L_aux = lambda_ie * L_IE + lambda_gauss * L_gauss
 
-        digm = digm_modules[0]
+    supervise_all=False:
+        只监督 mpd2，第一版更稳。
 
-        if not hasattr(digm, "aux_outputs") or digm.aux_outputs is None:
-            return None
+    supervise_all=True:
+        同时监督 mpd2/mpd3/mpd4。
+    """
+    digm_modules = [m for m in model.modules() if isinstance(m, DIGM)]
+    if len(digm_modules) == 0:
+        return None
 
-        aux = digm.aux_outputs
+    digm = digm_modules[0]
 
-        lie_loss = aux["lie_loss"]
-        mpd2 = aux["mpd2"]
+    if not hasattr(digm, "aux_outputs") or digm.aux_outputs is None:
+        return None
 
-        mgt2 = build_density_gaussian_map(batch, mpd2)
+    aux = digm.aux_outputs
 
-        if supervise_all:
-            mpd3 = aux["mpd3"]
-            mpd4 = aux["mpd4"]
+    lie_loss = aux["lie_loss"]
+    mpd2 = aux["mpd2"]
 
-            mgt3 = F.interpolate(mgt2, size=mpd3.shape[-2:], mode="nearest")
-            mgt4 = F.interpolate(mgt2, size=mpd4.shape[-2:], mode="nearest")
+    mgt2 = build_density_gaussian_map(batch, mpd2)
 
-            l_gauss = (
-                weighted_gaussian_mse(mpd2, mgt2) +
-                weighted_gaussian_mse(mpd3, mgt3) +
-                weighted_gaussian_mse(mpd4, mgt4)
-            ) / 3.0
-        else:
-            l_gauss = weighted_gaussian_mse(mpd2, mgt2)
+    if supervise_all:
+        mpd3 = aux["mpd3"]
+        mpd4 = aux["mpd4"]
 
-        return lambda_ie * lie_loss + lambda_gauss * l_gauss      
+        mgt3 = F.interpolate(mgt2, size=mpd3.shape[-2:], mode="nearest")
+        mgt4 = F.interpolate(mgt2, size=mpd4.shape[-2:], mode="nearest")
+
+        l_gauss = (
+            weighted_gaussian_mse(mpd2, mgt2) +
+            weighted_gaussian_mse(mpd3, mgt3) +
+            weighted_gaussian_mse(mpd4, mgt4)
+        ) / 3.0
+    else:
+        l_gauss = weighted_gaussian_mse(mpd2, mgt2)
+
+    return lambda_ie * lie_loss + lambda_gauss * l_gauss
