@@ -84,6 +84,7 @@ from .dff_module import DFF
 from .mdsf_module import MDSF4
 from .pa_module import PAFeature
 from .pgd_module import PGDHeatGate, pgd_heatmap_loss
+from .manet_module import LiteMANet
 
 __all__ = (
     "Conv",
@@ -151,5 +152,6 @@ __all__ = (
     "ASFF", #add2
     "DFF", #add
     "PAFeature", #add
+    "LiteMANet", #add
 )
 from .block import *
