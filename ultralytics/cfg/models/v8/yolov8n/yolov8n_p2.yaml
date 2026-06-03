@@ -52,10 +52,5 @@ head:
   - [[-1, 12], 1, Concat, [1]]
   - [-1, 3, C2f, [512]]             # 24, P4/16
 
-  # PA before Detect, using P2/P3/P4 only
-  - [[18, 21, 24], 1, PAFeature, [0]]   # 25, PA-P2
-  - [[18, 21, 24], 1, PAFeature, [1]]   # 26, PA-P3
-  - [[18, 21, 24], 1, PAFeature, [2]]   # 27, PA-P4
-
   # Detect only P2, P3, P4
   - [[18, 21, 24], 1, Detect, [nc]]
