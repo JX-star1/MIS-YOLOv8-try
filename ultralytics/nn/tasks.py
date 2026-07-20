@@ -26,9 +26,17 @@ from ultralytics.nn.modules import (
     DFF,
     MDSF4,
     PAFeature, #add
+    PAAdd,
+    PAConcat,
+    PABiFPN,
+    PAASFF,
     PGDHeatGate, #add
     pgd_heatmap_loss, #add
     MANet, #add
+    LSConvLite,
+    LSMANet,
+    LSC2f,
+    LSSPPF,
     C2fAttn,
     C3Ghost,
     C3x,
@@ -955,6 +963,10 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             RepC3,
             PGDHeatGate, # add
             MANet,  # add
+            LSConvLite,
+            LSMANet,
+            LSC2f,
+            LSSPPF,
         }:
             c1, c2 = ch[f], args[0]
             if c2 != nc:  # if c2 not equal to number of classes (i.e. for Classify() output)
@@ -1030,7 +1042,7 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             args = [c1, c2, level]
             ch_out = c2
 
-        elif getattr(m, "__name__", "") == "PAFeature":
+        elif getattr(m, "__name__", "") in {"PAFeature", "PAAdd", "PAConcat", "PABiFPN", "PAASFF"}:
             ch_in = [ch[x] for x in f]
             target = int(args[0]) if len(args) else 0
             c2 = ch_in[target]

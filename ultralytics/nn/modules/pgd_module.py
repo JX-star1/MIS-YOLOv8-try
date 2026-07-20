@@ -32,18 +32,25 @@ class PGDHeatGate(nn.Module):
         self.last_heat = None
         self.save_heat = False
 
+        # add for visualization
+        self.last_feat_in = None
+        self.last_feat_out = None
+
     def forward(self, x):
         x = self.proj(x)
         heat = torch.sigmoid(self.heat_head(x))
+        y = x * (1.0 + self.gate * heat)
 
-        # 只有在显式打开收集时才保存
-        if self.save_heat and self.training and torch.is_grad_enabled():
-            self.last_heat = heat
+        if self.save_heat:
+            self.last_heat = heat.detach()
+            self.last_feat_in = x.detach()
+            self.last_feat_out = y.detach()
         else:
-            self.last_heat = None       
+            self.last_heat = None
+            self.last_feat_in = None
+            self.last_feat_out = None
 
-        # gate=0 时只保留辅助监督，不改变特征
-        return x * (1.0 + self.gate * heat)
+        return y
 
 
 def build_pgd_target(batch, pred, img_size, small_classes=(0, 1, 2, 6, 7, 9), max_obj_size=64):

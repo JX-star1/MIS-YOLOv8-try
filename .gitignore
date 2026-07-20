@@ -166,3 +166,12 @@ pnnx*
 /ultralytics/assets/
 runs_visdrone/
 runs_visdrone/
+
+# Ignore TensorRT local files
+TensorRT-8.6.1.6.Linux.x86_64-gnu.cuda-11.8.tar.gz
+TensorRT-8.6.1.6/
+runs_debug/
+runs_visdrone_val/
+runs_scale_ap/
+*.bak
+*.bak_*

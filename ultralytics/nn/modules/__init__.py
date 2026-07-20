@@ -82,9 +82,10 @@ from .transformer import (
 )
 from .dff_module import DFF
 from .mdsf_module import MDSF4
-from .pa_module import PAFeature
+from .pa_module import PAFeature, PAAdd, PAConcat, PABiFPN, PAASFF
 from .pgd_module import PGDHeatGate, pgd_heatmap_loss
 from .manet_module import MANet
+from .ls_module import LSConvLite, LSMANet, LSC2f, LSSPPF
 
 __all__ = (
     "Conv",
@@ -152,6 +153,14 @@ __all__ = (
     "ASFF", #add2
     "DFF", #add
     "PAFeature", #add
+    "PAAdd",
+    "PAConcat",
+    "PABiFPN",
+    "PAASFF",
     "MANet", #add
+    "LSConvLite",
+    "LSMANet",
+    "LSC2f",
+    "LSSPPF",
 )
 from .block import *
