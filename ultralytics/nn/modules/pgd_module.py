@@ -41,7 +41,7 @@ class PGDHeatGate(nn.Module):
         heat = torch.sigmoid(self.heat_head(x))
         y = x * (1.0 + self.gate * heat)
 
-        if self.save_heat:
+        if getattr(self, "save_heat", False):
             self.last_heat = heat.detach()
             self.last_feat_in = x.detach()
             self.last_feat_out = y.detach()

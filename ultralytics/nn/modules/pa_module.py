@@ -214,7 +214,7 @@ class PAFeature(_PAAlignBase):
         w = self.weight(torch.cat(feats, dim=1))
         w = torch.softmax(w, dim=1)
 
-        if self.save_weight:
+        if getattr(self, "save_weight", False):
             self.last_weight = w.detach()
         else:
             self.last_weight = None

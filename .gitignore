@@ -137,10 +137,21 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-# datasets and projects
-datasets/
-runs/
-wandb/
+# PGAP-YOLO local datasets, experiment outputs, and generated visualizations.
+# Root anchors keep source packages such as ultralytics/data and
+# ultralytics/cfg/datasets trackable.
+/datasets/
+/datasets_raw/
+/data/
+/runs*/
+/experiments/
+/weights*/
+/logs*/
+/vis_inputs/
+/vis_outputs*/
+/wandb/
+/cache/
+/tmp/
 tests/
 .DS_Store
 
@@ -151,6 +162,7 @@ weights/
 *.pb
 *.onnx
 *.engine
+*.pth
 *.mlmodel
 *.mlpackage
 *.torchscript
@@ -170,6 +182,13 @@ runs_visdrone/
 # Ignore TensorRT local files
 TensorRT-8.6.1.6.Linux.x86_64-gnu.cuda-11.8.tar.gz
 TensorRT-8.6.1.6/
+/TensorRT*/
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.deb
+*.whl
 runs_debug/
 runs_visdrone_val/
 runs_scale_ap/
